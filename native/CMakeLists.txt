@@ -51,6 +51,28 @@ set(MAG_CORE_HEADERS
     src/core/ThreadPool.h
 )
 
+set(MAG_RENDER_SOURCES
+    src/render/BandProcessor.cpp
+    src/render/DirectPathSolver.cpp
+    src/render/ReflectionSolver.cpp
+    src/render/DiffractionSolver.cpp
+    src/render/ReverbEstimator.cpp
+    src/render/TemporalSmoother.cpp
+    src/render/OutputMixer.cpp
+    src/render/AcousticRenderer.cpp
+)
+
+set(MAG_RENDER_HEADERS
+    src/render/BandProcessor.h
+    src/render/DirectPathSolver.h
+    src/render/ReflectionSolver.h
+    src/render/DiffractionSolver.h
+    src/render/ReverbEstimator.h
+    src/render/TemporalSmoother.h
+    src/render/OutputMixer.h
+    src/render/AcousticRenderer.h
+)
+
 # Engine entry-point that implements the C ABI
 set(MAG_ENGINE_SOURCES
     src/Engine.cpp
@@ -63,6 +85,8 @@ add_library(magnaundasoni SHARED
     ${MAG_PUBLIC_HEADER}
     ${MAG_CORE_HEADERS}
     ${MAG_CORE_SOURCES}
+    ${MAG_RENDER_HEADERS}
+    ${MAG_RENDER_SOURCES}
     ${MAG_ENGINE_SOURCES}
 )
 
