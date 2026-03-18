@@ -288,11 +288,13 @@ namespace Magnaundasoni
                     if (renderer == null || !renderer.enabled) continue;
 
                     // Determine dynamic flag based on static flags and rigidbody
-                    uint dynamicFlag = 0; // Static
+                    uint dynamicFlag = (uint)MagDynamicFlag.Static;
                     if (!mf.gameObject.isStatic)
                     {
                         var rb = mf.GetComponent<Rigidbody>();
-                        dynamicFlag = rb != null ? (uint)2 : (uint)3; // DynamicImportant or DynamicMinor
+                        dynamicFlag = rb != null
+                            ? (uint)MagDynamicFlag.DynamicImportant
+                            : (uint)MagDynamicFlag.DynamicMinor;
                     }
 
                     // Register via the native API
