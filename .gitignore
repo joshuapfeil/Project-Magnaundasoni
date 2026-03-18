@@ -39,3 +39,59 @@
 
 # debug information files
 *.dwo
+
+# Build directories
+build/
+native/build/
+cmake-build-*/
+out/
+
+# IDE
+.vs/
+.vscode/
+*.sln
+*.vcxproj*
+.idea/
+*.swp
+*.swo
+*~
+
+# Unity
+unity/*/Library/
+unity/*/Temp/
+unity/*/Obj/
+unity/*/Build/
+unity/*/Builds/
+unity/*/Logs/
+unity/*/UserSettings/
+unity/*/*.csproj
+unity/*/*.unityproj
+unity/*/*.sln
+unity/*/*.suo
+unity/*/*.tmp
+unity/*/*.user
+unity/*/*.userprefs
+unity/*/*.pidb
+unity/*/Assembly-CSharp*.dll.mdb
+*.unitypackage
+
+# Unreal
+unreal/*/Binaries/
+unreal/*/DerivedDataCache/
+unreal/*/Intermediate/
+unreal/*/Saved/
+unreal/*/.vs/
+*.uproject.user
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+tests/output/
+tests/tmp/
+
+# Package artifacts
+dist/
+*.zip
+*.tar.gz
