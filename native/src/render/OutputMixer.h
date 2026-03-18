@@ -23,6 +23,7 @@ public:
         uint32_t maxBlockSize  = 1024;
         float    maxDelayMs    = 2000.0f;  // max delay line length
         float    masterGain    = 1.0f;
+        float    feedbackSmoothRate = 0.001f;
     };
 
     OutputMixer();

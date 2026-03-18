@@ -130,9 +130,7 @@ void OutputMixer::synthesiseReverb(float* outputBuffer, uint32_t numFrames,
     float targetFeedback = std::pow(10.0f, -3.0f * avgDelayTime / avgRT60);
     targetFeedback = std::max(0.0f, std::min(0.99f, targetFeedback));
 
-    // Smooth feedback change
-    float fbSmooth = 0.001f;
-    fdnState_.feedback += (targetFeedback - fdnState_.feedback) * fbSmooth;
+    fdnState_.feedback += (targetFeedback - fdnState_.feedback) * config_.feedbackSmoothRate;
 
     float fb = fdnState_.feedback;
     uint32_t ch = config_.channels;

@@ -82,10 +82,6 @@ public:
     void resetPair(uint64_t pairKey);
 
 private:
-    /// Detect teleportation by checking position delta.
-    bool detectTeleport(const SmoothedState& state,
-                        const Vec3& sourcePos) const;
-
     /// Exponential smoothing helper.
     static float expSmooth(float current, float target, float rate, float dt);
 

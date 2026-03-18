@@ -26,6 +26,7 @@ struct ReflectionTapInternal {
     float     stability    = 0.0f;   // tap temporal stability [0,1]
     float     pathLength   = 0.0f;
     Vec3      lastHitPoint;          // for clustering
+    bool      merged       = false;  // set when tap has been absorbed by clustering
 };
 
 /// Statistics gathered during reflection tracing (used by reverb estimator).

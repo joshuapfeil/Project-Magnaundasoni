@@ -255,10 +255,10 @@ void ReflectionSolver::clusterTaps(std::vector<ReflectionTapInternal>& taps) con
 
     // Simple O(n²) clustering for typical tap counts (< 100)
     for (size_t i = 0; i < taps.size(); ++i) {
-        if (taps[i].perBandEnergy[0] < -1e30f) continue; // already merged
+        if (taps[i].merged) continue;
 
         for (size_t j = i + 1; j < taps.size(); ++j) {
-            if (taps[j].perBandEnergy[0] < -1e30f) continue;
+            if (taps[j].merged) continue;
 
             float dt = std::abs(taps[i].delay - taps[j].delay);
             Vec3 dp  = taps[i].lastHitPoint - taps[j].lastHitPoint;
@@ -280,8 +280,7 @@ void ReflectionSolver::clusterTaps(std::vector<ReflectionTapInternal>& taps) con
                 taps[i].delay = taps[i].delay * wi + taps[j].delay * wj;
                 taps[i].stability = std::max(taps[i].stability, taps[j].stability);
 
-                // Mark j as merged
-                taps[j].perBandEnergy.fill(-1e31f);
+                taps[j].merged = true;
             }
         }
     }
@@ -289,7 +288,7 @@ void ReflectionSolver::clusterTaps(std::vector<ReflectionTapInternal>& taps) con
     // Remove merged taps
     taps.erase(
         std::remove_if(taps.begin(), taps.end(),
-            [](const ReflectionTapInternal& t) { return t.perBandEnergy[0] < -1e30f; }),
+            [](const ReflectionTapInternal& t) { return t.merged; }),
         taps.end());
 }
 

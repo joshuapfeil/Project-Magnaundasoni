@@ -193,17 +193,12 @@ std::vector<DiffractionTapInternal> DiffractionSolver::solve(
         if (!isVisible(edge.centerPoint, listenerPos, bvh)) continue;
 
         BandArray atten;
-        switch (config_.quality) {
-            case QualityLevel::Low:
-                atten = computeFresnelApprox(edge, sourcePos, listenerPos);
-                break;
-            case QualityLevel::Medium:
-            case QualityLevel::High:
-                atten = computeUTDCoefficients(edge, sourcePos, listenerPos);
-                break;
-            case QualityLevel::Ultra:
-                atten = computeUTDCoefficients(edge, sourcePos, listenerPos);
-                break;
+        if (config_.quality == QualityLevel::Low) {
+            atten = computeFresnelApprox(edge, sourcePos, listenerPos);
+        } else {
+            // Medium, High, and Ultra all use full UTD for single-edge;
+            // Ultra additionally runs cascaded UTD (below).
+            atten = computeUTDCoefficients(edge, sourcePos, listenerPos);
         }
 
         // Apply effective band mask

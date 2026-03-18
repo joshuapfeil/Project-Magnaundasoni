@@ -19,13 +19,6 @@ float TemporalSmoother::expSmooth(float current, float target, float rate, float
     return current + (target - current) * alpha;
 }
 
-bool TemporalSmoother::detectTeleport(const SmoothedState& /*state*/,
-                                       const Vec3& sourcePos) const {
-    // Comparison not possible without stored source position – handled in smooth()
-    (void)sourcePos;
-    return false;
-}
-
 void TemporalSmoother::resetAll() {
     states_.clear();
     lastSourcePositions_.clear();
