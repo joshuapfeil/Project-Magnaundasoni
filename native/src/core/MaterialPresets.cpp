@@ -2,7 +2,7 @@
  * @file MaterialPresets.cpp
  * @brief Hardcoded acoustically realistic material presets.
  *
- * Frequency bands: 125 Hz, 250 Hz, 500 Hz, 1 kHz, 2 kHz, 4 kHz, 8 kHz, 16 kHz
+ * Frequency bands: 63 Hz, 125 Hz, 250 Hz, 500 Hz, 1 kHz, 2 kHz, 4 kHz, 8 kHz
  * Values sourced from standard architectural acoustics references
  * (ISO 354 / Cox & D'Antonio / Kuttruff).
  */

@@ -64,10 +64,10 @@ BandArray getEffectiveBandMask(uint32_t effectiveBandCount) {
         // All 8 bands active
         mask.fill(1.0f);
     } else if (effectiveBandCount >= 6) {
-        // Bands 1-6 active (250 Hz – 8 kHz)
+        // Bands 1-6 active (125 Hz – 4 kHz)
         for (int i = 1; i <= 6; ++i) mask[i] = 1.0f;
     } else {
-        // 4 bands: 2,3,4,5 (500 Hz – 4 kHz)
+        // 4 bands: 2,3,4,5 (250 Hz – 2 kHz)
         for (int i = 2; i <= 5; ++i) mask[i] = 1.0f;
     }
 

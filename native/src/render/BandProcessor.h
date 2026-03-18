@@ -15,18 +15,18 @@ namespace magnaundasoni {
 
 /// Center frequencies for the 8 octave bands (Hz).
 static constexpr float kBandCenterFrequencies[8] = {
-    125.0f, 250.0f, 500.0f, 1000.0f, 2000.0f, 4000.0f, 8000.0f, 16000.0f
+    63.0f, 125.0f, 250.0f, 500.0f, 1000.0f, 2000.0f, 4000.0f, 8000.0f
 };
 
 /// Approximate air absorption coefficients in dB/km per band
 /// (at ~20°C, 50% humidity).
 static constexpr float kDefaultAirAbsorptionDbPerKm[8] = {
-    0.1f, 0.3f, 0.7f, 1.5f, 3.0f, 6.0f, 12.0f, 20.0f
+    0.05f, 0.1f, 0.3f, 0.7f, 1.5f, 3.0f, 6.0f, 12.0f
 };
 
 /// A-weighting corrections in dB per band.
 static constexpr float kAWeighting[8] = {
-    -16.1f, -8.6f, -3.2f, 0.0f, 1.2f, 1.0f, -1.1f, -6.6f
+    -26.2f, -16.1f, -8.6f, -3.2f, 0.0f, 1.2f, 1.0f, -1.1f
 };
 
 enum class FrequencyWeighting { Flat, AWeighted };

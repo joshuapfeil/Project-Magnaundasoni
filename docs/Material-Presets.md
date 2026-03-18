@@ -7,9 +7,9 @@ coefficients across 8 octave bands.
 
 ## Band Frequencies
 
-| Index | 0      | 1      | 2      | 3     | 4     | 5     | 6     | 7      |
-|-------|--------|--------|--------|-------|-------|-------|-------|--------|
-| Freq  | 125 Hz | 250 Hz | 500 Hz | 1 kHz | 2 kHz | 4 kHz | 8 kHz | 16 kHz |
+| Index | 0     | 1      | 2      | 3      | 4     | 5     | 6     | 7     |
+|-------|-------|--------|--------|--------|-------|-------|-------|-------|
+| Freq  | 63 Hz | 125 Hz | 250 Hz | 500 Hz | 1 kHz | 2 kHz | 4 kHz | 8 kHz |
 
 All coefficients are **linear** values in the range [0, 1].
 
@@ -20,9 +20,8 @@ All coefficients are **linear** values in the range [0, 1].
 Fraction of incident sound energy absorbed by the surface at each frequency
 band.  Higher values = more absorption (less reflection).
 
-| Material   | 125 Hz | 250 Hz | 500 Hz | 1 kHz | 2 kHz | 4 kHz | 8 kHz | 16 kHz |
-|------------|--------|--------|--------|-------|-------|-------|-------|--------|
-| **General**| 0.10   | 0.10   | 0.10   | 0.10  | 0.10  | 0.10  | 0.10  | 0.10   |
+| Material   | 63 Hz  | 125 Hz | 250 Hz | 500 Hz | 1 kHz | 2 kHz | 4 kHz | 8 kHz |
+|------------|--------|--------|--------|--------|-------|-------|-------|-------|
 | **Metal**  | 0.01   | 0.01   | 0.02   | 0.02  | 0.02  | 0.03  | 0.04  | 0.04   |
 | **Wood**   | 0.15   | 0.11   | 0.10   | 0.07  | 0.06  | 0.07  | 0.08  | 0.08   |
 | **Fabric** | 0.03   | 0.04   | 0.11   | 0.17  | 0.24  | 0.35  | 0.44  | 0.45   |
@@ -48,9 +47,8 @@ band.  Higher values = more absorption (less reflection).
 Fraction of sound energy that passes through the surface.  Higher values = more
 transmission (less isolation).
 
-| Material   | 125 Hz | 250 Hz | 500 Hz | 1 kHz | 2 kHz | 4 kHz | 8 kHz | 16 kHz |
-|------------|--------|--------|--------|-------|-------|-------|-------|--------|
-| **General**| 0.10   | 0.08   | 0.06   | 0.04  | 0.03  | 0.02  | 0.02  | 0.01   |
+| Material   | 63 Hz  | 125 Hz | 250 Hz | 500 Hz | 1 kHz | 2 kHz | 4 kHz | 8 kHz |
+|------------|--------|--------|--------|--------|-------|-------|-------|-------|
 | **Metal**  | 0.001  | 0.001  | 0.001  | 0.001 | 0.001 | 0.001 | 0.002 | 0.002  |
 | **Wood**   | 0.06   | 0.04   | 0.03   | 0.02  | 0.02  | 0.01  | 0.01  | 0.01   |
 | **Fabric** | 0.30   | 0.25   | 0.20   | 0.15  | 0.12  | 0.10  | 0.08  | 0.07   |
@@ -74,9 +72,8 @@ transmission (less isolation).
 Fraction of reflected energy that is scattered diffusely (as opposed to
 specularly reflected).  Higher values = more diffuse scattering.
 
-| Material   | 125 Hz | 250 Hz | 500 Hz | 1 kHz | 2 kHz | 4 kHz | 8 kHz | 16 kHz |
-|------------|--------|--------|--------|-------|-------|-------|-------|--------|
-| **General**| 0.10   | 0.12   | 0.15   | 0.20  | 0.25  | 0.30  | 0.35  | 0.40   |
+| Material   | 63 Hz  | 125 Hz | 250 Hz | 500 Hz | 1 kHz | 2 kHz | 4 kHz | 8 kHz |
+|------------|--------|--------|--------|--------|-------|-------|-------|-------|
 | **Metal**  | 0.05   | 0.05   | 0.05   | 0.05  | 0.06  | 0.07  | 0.08  | 0.10   |
 | **Wood**   | 0.10   | 0.12   | 0.15   | 0.18  | 0.22  | 0.28  | 0.35  | 0.40   |
 | **Fabric** | 0.30   | 0.35   | 0.40   | 0.50  | 0.55  | 0.60  | 0.65  | 0.70   |
@@ -128,7 +125,7 @@ MagnResult r = magn_set_material_from_preset(1, "Wood");
 /* Or get a copy to modify */
 MagnMaterial mat;
 magn_material_from_preset("Metal", &mat);
-mat.absorption[0] = 0.05f;  /* Override 125 Hz absorption */
+mat.absorption[0] = 0.05f;  /* Override 63 Hz absorption */
 magn_set_material(2, &mat);
 ```
 

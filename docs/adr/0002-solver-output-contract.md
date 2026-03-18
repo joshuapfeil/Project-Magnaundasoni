@@ -26,9 +26,9 @@ listener, containing per-source results and a global acoustic field descriptor.
 
 All per-band arrays use **8 octave bands**:
 
-| Index | 0      | 1      | 2      | 3     | 4     | 5     | 6     | 7      |
-|-------|--------|--------|--------|-------|-------|-------|-------|--------|
-| Freq  | 125 Hz | 250 Hz | 500 Hz | 1 kHz | 2 kHz | 4 kHz | 8 kHz | 16 kHz |
+| Index | 0     | 1      | 2      | 3      | 4     | 5     | 6     | 7     |
+|-------|-------|--------|--------|--------|-------|-------|-------|-------|
+| Freq  | 63 Hz | 125 Hz | 250 Hz | 500 Hz | 1 kHz | 2 kHz | 4 kHz | 8 kHz |
 
 ### Per-Source Direct Component
 

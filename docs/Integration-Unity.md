@@ -88,43 +88,49 @@ public class AcousticsDemo : MonoBehaviour
 
 ## Scene Setup
 
-### Automatic Geometry Registration
+### Fully Automatic Geometry Registration (Recommended)
 
-Add the `MagnGeometry` component to any GameObject with a `MeshFilter` or
-`MeshCollider`.  The adapter automatically extracts triangles and registers
-them as an acoustic chunk.
+By default, the Magnaundasoni engine **automatically discovers and registers**
+all `MeshFilter` and `MeshRenderer` geometry in the scene—no manual component
+placement required. When `MagnaundasoniEngine` initializes, it scans the scene
+for all renderable meshes marked as **Static** (or with any `StaticFlags` set)
+and registers them using the "General" material preset. Dynamic objects with
+a `Rigidbody` are registered as `DynamicImportant`.
 
 ```csharp
-using Magnaundasoni;
-using UnityEngine;
+// In the engine settings (Inspector), enable auto-scan:
+// [✓] Auto Register Scene Geometry
+// [✓] Auto Register On Scene Load
 
-[RequireComponent(typeof(MeshFilter))]
-public class MagnGeometry : MonoBehaviour
-{
-    [Tooltip("Material preset tag for all triangles on this mesh")]
-    public string materialPreset = "General";
+// That's it! All meshes are registered automatically.
+// No component placement needed for basic setups.
+```
 
-    [Tooltip("Unique chunk ID; auto-assigned if 0")]
-    public ulong chunkID = 0;
+**Auto-scan behavior:**
+- All `MeshFilter` objects with `MeshRenderer` in the scene are discovered.
+- Geometry marked as `Static` in the editor is registered as static acoustic
+  geometry with the "General" material preset.
+- Non-static objects with a `Rigidbody` are registered as dynamic geometry.
+- When a new scene loads (additively or otherwise), new geometry is
+  automatically registered.
+- Objects destroyed at runtime are automatically unregistered.
 
-    void OnEnable()
-    {
-        var mesh = GetComponent<MeshFilter>().sharedMesh;
-        var desc = MagnMeshUtility.CreateGeometryDesc(mesh, transform, materialPreset);
-        chunkID = chunkID == 0 ? MagnIDAllocator.NextChunkID() : chunkID;
-        MagnEngine.RegisterGeometry(chunkID, desc);
-    }
+### Per-Object Overrides (Optional)
 
-    void OnDisable()
-    {
-        MagnEngine.UnregisterGeometry(chunkID);
-    }
-}
+For objects that need specific material presets, dynamic flags, or exclusion
+from acoustic processing, add the `MagnaundasoniGeometry` component to
+override auto-scan defaults:
+
+```csharp
+// Adding MagnaundasoniGeometry to a wall lets you set:
+// - Material preset: "Wood", "Metal", "Carpet", etc.
+// - Dynamic flag: Static, QuasiStatic, DynamicImportant, DynamicMinor
+// - Exclude from acoustics: toggle off to skip this mesh
 ```
 
 ### Manual Geometry Registration
 
-For custom meshes or procedural geometry:
+For custom meshes, procedural geometry, or full manual control:
 
 ```csharp
 var desc = new MagnGeometryDesc
@@ -260,7 +266,34 @@ public class MagnAcousticListener : MonoBehaviour
 
 ## Material Assignment
 
-### Using Presets
+### Using the Unity Editor (Recommended)
+
+Materials can be created and assigned entirely within the Unity Editor:
+
+1. **Create a material asset:** Right-click in the Project panel →
+   **Create → Magnaundasoni → Acoustic Material**.
+2. **Select a preset** from the dropdown in the Inspector (General, Metal,
+   Wood, Fabric, Rock, Dirt, Grass, Carpet, etc.).
+3. **Fine-tune per-band values** using the visual sliders and frequency
+   response curve display in the Inspector.
+4. **Assign the material** by dragging it onto any `MagnaundasoniGeometry`
+   component's "Acoustic Material" field—or use the auto-scan's per-layer
+   material mapping in the engine settings.
+
+Material editing works in **both Edit mode and Play mode**.  Changes made in
+Edit mode are saved as asset modifications.  Changes in Play mode update the
+simulation immediately for live preview.
+
+### Editor Menu Tools
+
+- **Magnaundasoni → Create Material Preset** – batch-create materials from
+  all built-in presets.
+- **Magnaundasoni → Assign Materials by Layer** – opens a window to map Unity
+  layers to acoustic material presets (e.g., Layer "Walls" → "Concrete").
+- **Magnaundasoni → Material Auditor** – shows all acoustic materials in the
+  scene and flags objects without an assigned material.
+
+### Using Code (Presets)
 
 ```csharp
 // Assign a built-in preset
@@ -269,7 +302,7 @@ MagnEngine.SetMaterialFromPreset(materialID: 2, preset: "Metal");
 MagnEngine.SetMaterialFromPreset(materialID: 3, preset: "Carpet");
 ```
 
-### Custom Materials
+### Using Code (Custom Materials)
 
 ```csharp
 var customMaterial = new MagnMaterial
@@ -455,10 +488,17 @@ public class MagnDebugDraw : MonoBehaviour
 | Problem | Cause | Solution |
 |---------|-------|----------|
 | No acoustic effect | Engine not initialized | Ensure `MagnEngine.Initialize()` is called before `Tick()` |
-| Sounds cut out abruptly | Geometry not registered | Add `MagnGeometry` to wall/floor meshes |
-| High CPU usage | Too many active sources or rays | Reduce `RaysPerSource` or lower quality level |
+| Sounds cut out abruptly | Geometry not registered | Enable auto-scan or add `MagnaundasoniGeometry` to wall/floor meshes |
+| High GPU usage from ray tracing | Too many active sources or rays on GPU RT backend | Reduce `RaysPerSource`, lower quality level, or limit active sources |
+| Falling back to CPU BVH | GPU RT not available on hardware | Expected on non-RTX/non-RDNA2 hardware; the software BVH fallback is automatic and correct. Upgrade GPU for best performance |
 | Popping on scene load | Chunk not loaded before listener enters | Use predictive loading (see Streaming section) |
-| `MAGN_ERROR_BACKEND_FAILURE` | GPU driver issue | Try `MagnInitConfig.ForceBackend = Software` |
+| `MAGN_ERROR_BACKEND_FAILURE` | GPU driver issue | Try `MagnInitConfig.ForceBackend = SoftwareBVH` as a temporary workaround |
+
+> **Note:** Magnaundasoni uses **GPU-accelerated ray tracing** (DXR / Vulkan RT)
+> as the primary backend whenever the hardware supports it. The CPU-based
+> software BVH is an automatic fallback for non-RT-capable hardware. The engine
+> detects hardware capabilities at startup and selects the best available path.
+> You can force a specific backend via `MagnEngineConfig.preferredBackend`.
 
 ---
 

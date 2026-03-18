@@ -2,6 +2,7 @@
 // MagnaundasoniEngine.cs – High-level Unity singleton for the acoustics engine
 // ============================================================================
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using UnityEngine;
 
@@ -65,6 +66,14 @@ namespace Magnaundasoni
         [Tooltip("BuiltIn: engine handles audio output. Integration: maps results to Unity AudioSources.")]
         [SerializeField] private RenderingMode _renderingMode = RenderingMode.Integration;
 
+        [Header("Auto Registration")]
+        [Tooltip("Automatically scan and register all scene geometry on startup.")]
+        [SerializeField] private bool _autoRegisterSceneGeometry = true;
+        [Tooltip("Automatically register geometry when new scenes are loaded.")]
+        [SerializeField] private bool _autoRegisterOnSceneLoad = true;
+        [Tooltip("Default material preset for auto-registered geometry.")]
+        [SerializeField] private string _defaultMaterialPreset = "General";
+
         // ----- Public Properties ------------------------------------------
         public IntPtr NativeHandle => _engineHandle;
         public bool IsInitialized => _engineHandle != IntPtr.Zero;
@@ -99,10 +108,16 @@ namespace Magnaundasoni
         private void OnEnable()
         {
             InitializeEngine();
+            if (_autoRegisterSceneGeometry && IsInitialized)
+                AutoRegisterAllSceneGeometry();
+            if (_autoRegisterOnSceneLoad)
+                UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneLoaded;
         }
 
         private void OnDisable()
         {
+            if (_autoRegisterOnSceneLoad)
+                UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnSceneLoaded;
             ShutdownEngine();
         }
 
@@ -223,6 +238,115 @@ namespace Magnaundasoni
             finally
             {
                 _engineHandle = IntPtr.Zero;
+            }
+        }
+
+        // ----- Auto Registration -------------------------------------------
+        private readonly HashSet<int> _autoRegisteredObjects = new HashSet<int>();
+
+        private void OnSceneLoaded(UnityEngine.SceneManagement.Scene scene,
+            UnityEngine.SceneManagement.LoadSceneMode mode)
+        {
+            if (!IsInitialized || !_autoRegisterOnSceneLoad) return;
+            AutoRegisterSceneGeometry(scene);
+        }
+
+        /// <summary>
+        /// Scans ALL loaded scenes and registers every MeshFilter that does
+        /// not already have a MagnaundasoniGeometry override component.
+        /// </summary>
+        public void AutoRegisterAllSceneGeometry()
+        {
+            for (int i = 0; i < UnityEngine.SceneManagement.SceneManager.sceneCount; i++)
+            {
+                var scene = UnityEngine.SceneManagement.SceneManager.GetSceneAt(i);
+                if (scene.isLoaded)
+                    AutoRegisterSceneGeometry(scene);
+            }
+        }
+
+        private void AutoRegisterSceneGeometry(UnityEngine.SceneManagement.Scene scene)
+        {
+            var roots = scene.GetRootGameObjects();
+            foreach (var root in roots)
+            {
+                var meshFilters = root.GetComponentsInChildren<MeshFilter>(false);
+                foreach (var mf in meshFilters)
+                {
+                    // Skip objects that have an explicit MagnaundasoniGeometry component
+                    if (mf.GetComponent<MagnaundasoniGeometry>() != null) continue;
+
+                    // Skip objects already auto-registered
+                    int instanceID = mf.gameObject.GetInstanceID();
+                    if (_autoRegisteredObjects.Contains(instanceID)) continue;
+
+                    // Skip objects with no mesh
+                    if (mf.sharedMesh == null) continue;
+
+                    // Skip objects with no renderer (invisible objects)
+                    var renderer = mf.GetComponent<MeshRenderer>();
+                    if (renderer == null || !renderer.enabled) continue;
+
+                    // Determine dynamic flag based on static flags and rigidbody
+                    uint dynamicFlag = 0; // Static
+                    if (!mf.gameObject.isStatic)
+                    {
+                        var rb = mf.GetComponent<Rigidbody>();
+                        dynamicFlag = rb != null ? (uint)2 : (uint)3; // DynamicImportant or DynamicMinor
+                    }
+
+                    // Register via the native API
+                    RegisterMeshGeometry(mf, dynamicFlag);
+                    _autoRegisteredObjects.Add(instanceID);
+                }
+            }
+
+            int count = _autoRegisteredObjects.Count;
+            if (count > 0)
+                Debug.Log($"[Magnaundasoni] Auto-registered {count} geometry objects from scene '{scene.name}'");
+        }
+
+        private unsafe void RegisterMeshGeometry(MeshFilter mf, uint dynamicFlag)
+        {
+            Mesh mesh = mf.sharedMesh;
+            Vector3[] meshVertices = mesh.vertices;
+            int[] meshTriangles = mesh.triangles;
+
+            float[] worldVertices = new float[meshVertices.Length * 3];
+            Matrix4x4 ltw = mf.transform.localToWorldMatrix;
+            for (int i = 0; i < meshVertices.Length; i++)
+            {
+                Vector3 wp = ltw.MultiplyPoint3x4(meshVertices[i]);
+                worldVertices[i * 3 + 0] = wp.x;
+                worldVertices[i * 3 + 1] = wp.y;
+                worldVertices[i * 3 + 2] = wp.z;
+            }
+
+            uint[] indices = new uint[meshTriangles.Length];
+            for (int i = 0; i < meshTriangles.Length; i++)
+                indices[i] = (uint)meshTriangles[i];
+
+            fixed (float* vertPtr = worldVertices)
+            fixed (uint* idxPtr = indices)
+            {
+                var desc = new MagGeometryDesc
+                {
+                    vertices    = vertPtr,
+                    vertexCount = (uint)meshVertices.Length,
+                    indices     = idxPtr,
+                    indexCount  = (uint)indices.Length,
+                    materialID  = 0, // Default material
+                    dynamicFlag = dynamicFlag
+                };
+
+                try
+                {
+                    MagAPI.GeometryRegister(_engineHandle, desc);
+                }
+                catch (MagnaundasoniException ex)
+                {
+                    Debug.LogWarning($"[Magnaundasoni] Auto-register failed for '{mf.gameObject.name}': {ex.Message}");
+                }
             }
         }
     }
