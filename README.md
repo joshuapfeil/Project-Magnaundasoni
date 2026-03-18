@@ -1,3 +1,5 @@
+## DISCLAIMER: I am not an audio engineer, this is mostly AI generated. I am making this because I wanted to see the idea get the attention I felt it deserved nad I'm not sure if an easy to use or truly realtime for large projects version of what I am thinking exists. Audio tends to be low priority and I wanted to make something that makes it easy to add superemely high quality audio. I welcome the input of people that know more than me and I hope this helps fellow developers make amazing things!
+
 # Project Magnaundasoni
 
 A realtime acoustics and audio rendering runtime for games, built around physically grounded propagation, dynamic world support, and a hybrid built-in/integration workflow for Unity, Unreal, and other engine pipelines.
