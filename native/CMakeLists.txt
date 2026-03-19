@@ -8,6 +8,12 @@ option(MAGNAUNDASONI_BUILD_TESTS   "Build unit tests"                   OFF)
 option(MAGNAUNDASONI_ENABLE_RT     "Enable hardware ray-tracing backends" OFF)
 option(MAGNAUNDASONI_ENABLE_SIMD   "Enable SIMD optimisations"           ON)
 
+# CTest integration (enabled whenever tests are built)
+if(MAGNAUNDASONI_BUILD_TESTS)
+    include(CTest)
+    enable_testing()
+endif()
+
 # ---------------------------------------------------------------------------
 # Compiler requirements
 # ---------------------------------------------------------------------------
@@ -158,3 +164,52 @@ install(TARGETS magnaundasoni
     RUNTIME  DESTINATION bin
 )
 install(FILES ${MAG_PUBLIC_HEADER} DESTINATION include)
+
+# ---------------------------------------------------------------------------
+# Unit tests (Catch2 via FetchContent)
+# ---------------------------------------------------------------------------
+if(MAGNAUNDASONI_BUILD_TESTS)
+    include(FetchContent)
+
+    FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG        v3.7.1
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(Catch2)
+
+    add_executable(magnaundasoni_tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/../tests/unit/placeholder_test.cpp
+    )
+
+    target_include_directories(magnaundasoni_tests
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+
+    target_link_libraries(magnaundasoni_tests
+        PRIVATE
+            magnaundasoni
+            Catch2::Catch2WithMain
+    )
+
+    # Inherit C++ standard from main target
+    set_target_properties(magnaundasoni_tests PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+    )
+
+    # Suppress unused-parameter warnings from Catch2 on GCC/Clang
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(magnaundasoni_tests PRIVATE
+            -Wno-unused-parameter
+        )
+    elseif(MSVC)
+        target_compile_options(magnaundasoni_tests PRIVATE /wd4100)
+    endif()
+
+    include(Catch)
+    catch_discover_tests(magnaundasoni_tests)
+endif()
