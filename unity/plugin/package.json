@@ -1,0 +1,17 @@
+{
+    "name": "com.magnaundasoni.acoustics",
+    "version": "1.0.0",
+    "displayName": "Magnaundasoni Acoustics",
+    "description": "Real-time acoustic rendering engine with ray-traced reflections, diffraction, and late-field reverberation for immersive spatial audio in Unity.",
+    "unity": "2021.3",
+    "keywords": [
+        "acoustics",
+        "audio",
+        "spatial"
+    ],
+    "author": {
+        "name": "Magnaundasoni"
+    },
+    "license": "MIT",
+    "type": "library"
+}
