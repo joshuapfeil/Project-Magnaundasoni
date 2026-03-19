@@ -56,3 +56,40 @@ The project is in early design/scaffolding, with architecture decisions and init
 ## Contributing
 
 We invite discussion and early contributions while noting that major architecture decisions are still being documented.
+
+---
+
+## Getting Started
+
+Clone the repository and build the native library in a few commands:
+
+```bash
+# Clone
+git clone https://github.com/joshuapfeil/Project-Magnaundasoni.git
+cd Project-Magnaundasoni
+git submodule update --init --recursive
+
+# Configure & build (Linux / macOS)
+cmake -S native -B build/debug -G Ninja \
+    -DCMAKE_BUILD_TYPE=Debug \
+    -DMAGNAUNDASONI_BUILD_TESTS=ON
+cmake --build build/debug
+
+# Run unit tests
+ctest --test-dir build/debug --output-on-failure
+```
+
+For Windows and additional CMake options see **[BUILD.md](BUILD.md)**.
+
+### Key Documentation
+
+| Document | Description |
+|----------|-------------|
+| [BUILD.md](BUILD.md) | Native build instructions for Linux, Windows, and macOS |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Branch strategy, code style, and PR process |
+| [docs/SETUP_DEVELOPMENT.md](docs/SETUP_DEVELOPMENT.md) | IDE and editor setup for C++ and Unity/Unreal |
+| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | Full contribution guide |
+| [docs/API.md](docs/API.md) | Public C API reference |
+| [docs/Integration-Unity.md](docs/Integration-Unity.md) | Unity plugin integration guide |
+| [docs/Integration-Unreal.md](docs/Integration-Unreal.md) | Unreal plugin integration guide |
+| [docs/adr/](docs/adr/) | Architecture Decision Records |

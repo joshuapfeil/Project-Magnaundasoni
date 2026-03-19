@@ -158,3 +158,12 @@ install(TARGETS magnaundasoni
     RUNTIME  DESTINATION bin
 )
 install(FILES ${MAG_PUBLIC_HEADER} DESTINATION include)
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+if(MAGNAUNDASONI_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../tests/unit
+                     ${CMAKE_CURRENT_BINARY_DIR}/tests/unit)
+endif()
