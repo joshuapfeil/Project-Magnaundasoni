@@ -10,7 +10,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Magnaundasoni.h"
-#include "../../native/src/render/BandProcessor.h"
+#include "render/BandProcessor.h"
 
 #include <cmath>
 

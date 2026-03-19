@@ -67,7 +67,6 @@ Clone the repository and build the native library in a few commands:
 # Clone
 git clone https://github.com/joshuapfeil/Project-Magnaundasoni.git
 cd Project-Magnaundasoni
-git submodule update --init --recursive
 
 # Configure & build (Linux / macOS)
 cmake -S native -B build/debug -G Ninja \

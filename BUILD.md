@@ -22,7 +22,7 @@ Linux, Windows, and macOS.
 | Tool         | Minimum version | Notes                                       |
 |--------------|-----------------|---------------------------------------------|
 | C++ compiler | C++17 capable   | GCC 9+, Clang 10+, MSVC 2019+               |
-| CMake        | 3.21            | Required for preset support                 |
+| CMake        | 3.16            | Matches `native/CMakeLists.txt`; newer OK   |
 | Ninja        | 1.10            | Recommended generator (faster than Make)    |
 | Git          | 2.30            | LFS required for binary test assets         |
 | Python       | 3.8             | Build helper scripts                        |
@@ -51,7 +51,6 @@ sudo apt install -y libvulkan-dev
 # 2. Clone
 git clone https://github.com/joshuapfeil/Project-Magnaundasoni.git
 cd Project-Magnaundasoni
-git submodule update --init --recursive
 
 # 3. Configure (Debug)
 cmake -S native -B build/debug -G Ninja \
@@ -91,7 +90,6 @@ winget install Kitware.CMake Ninja-build.Ninja
 # 3. Clone
 git clone https://github.com/joshuapfeil/Project-Magnaundasoni.git
 cd Project-Magnaundasoni
-git submodule update --init --recursive
 
 # 4. Configure
 cmake -S native -B build\debug -G Ninja `
@@ -131,7 +129,6 @@ brew install cmake ninja
 # 3. Clone
 git clone https://github.com/joshuapfeil/Project-Magnaundasoni.git
 cd Project-Magnaundasoni
-git submodule update --init --recursive
 
 # 4. Configure (Debug)
 cmake -S native -B build/debug -G Ninja \
@@ -165,19 +162,17 @@ cmake --build build/universal
 | `MAGNAUNDASONI_BUILD_TESTS`   | `OFF`   | Build unit and integration tests              |
 | `MAGNAUNDASONI_ENABLE_RT`     | `OFF`   | Enable hardware ray-tracing backends          |
 | `MAGNAUNDASONI_ENABLE_SIMD`   | `ON`    | Enable SSE4.1 / NEON SIMD optimisations       |
-| `MAGNAUNDASONI_ENABLE_ASAN`   | `OFF`   | Address Sanitizer (Debug only)                |
-| `MAGNAUNDASONI_ENABLE_TSAN`   | `OFF`   | Thread Sanitizer (Debug only)                 |
-| `MAGNAUNDASONI_ENABLE_COVERAGE` | `OFF` | Enable GCC/Clang coverage instrumentation     |
 
-Example – enable Address Sanitizer on Linux/macOS:
+Example – disable optional backends for a minimal test build:
 
 ```bash
-cmake -S native -B build/asan -G Ninja \
+cmake -S native -B build/minimal -G Ninja \
     -DCMAKE_BUILD_TYPE=Debug \
     -DMAGNAUNDASONI_BUILD_TESTS=ON \
-    -DMAGNAUNDASONI_ENABLE_ASAN=ON
-cmake --build build/asan
-ctest --test-dir build/asan --output-on-failure
+    -DMAGNAUNDASONI_ENABLE_SIMD=OFF \
+    -DMAGNAUNDASONI_ENABLE_RT=OFF
+cmake --build build/minimal
+ctest --test-dir build/minimal --output-on-failure
 ```
 
 ---
@@ -193,9 +188,6 @@ ctest --test-dir build/debug -V
 
 # Run the native unit test binary directly
 ./build/debug/magnaundasoni_tests
-
-# Generate coverage report (requires MAGNAUNDASONI_ENABLE_COVERAGE=ON)
-gcovr --html-details coverage/index.html -r native/src/
 ```
 
 Test categories and their locations:

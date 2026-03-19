@@ -24,7 +24,7 @@ need to get started.
 | Tool         | Version        | Notes |
 |--------------|---------------|-------|
 | C++ compiler | C++17 capable | GCC 9+, Clang 10+, MSVC 2019+ |
-| CMake        | ≥ 3.21        | Required for presets support |
+| CMake        | ≥ 3.16        | Matches `native/CMakeLists.txt`; newer OK |
 | Python       | ≥ 3.8         | Build scripts and test tooling |
 | Git          | ≥ 2.30        | LFS required for test assets |
 | Vulkan SDK   | ≥ 1.3         | Optional; for Vulkan RT backend |
@@ -44,51 +44,35 @@ need to get started.
 ```bash
 git clone https://github.com/<org>/Project-Magnaundasoni.git
 cd Project-Magnaundasoni
-git submodule update --init --recursive
 ```
 
 ---
 
 ## Build Instructions
 
-### Using CMake Presets (Recommended)
+### Configure + Build (Recommended)
 
 ```bash
-# List available presets
-cmake --list-presets
-
-# Configure + build (Debug)
-cmake --preset debug
-cmake --build --preset debug
-
-# Configure + build (Release)
-cmake --preset release
-cmake --build --preset release
-```
-
-### Manual CMake
-
-```bash
-mkdir build && cd build
-cmake .. -G Ninja \
+# Debug
+cmake -S native -B build/debug -G Ninja \
     -DCMAKE_BUILD_TYPE=Debug \
-    -DMAGN_BUILD_TESTS=ON \
-    -DMAGN_BUILD_BENCHMARKS=ON \
-    -DMAGN_ENABLE_DXR=OFF \
-    -DMAGN_ENABLE_VULKAN_RT=ON
-ninja
+    -DMAGNAUNDASONI_BUILD_TESTS=ON
+cmake --build build/debug
+
+# Release
+cmake -S native -B build/release -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DMAGNAUNDASONI_BUILD_TESTS=ON
+cmake --build build/release
 ```
 
 ### Key CMake Options
 
-| Option                  | Default | Description |
-|-------------------------|---------|-------------|
-| `MAGN_BUILD_TESTS`      | ON      | Build unit and integration tests |
-| `MAGN_BUILD_BENCHMARKS` | OFF     | Build performance benchmarks |
-| `MAGN_ENABLE_DXR`       | Auto    | Enable DXR 1.1 backend (Windows only) |
-| `MAGN_ENABLE_VULKAN_RT` | Auto    | Enable Vulkan ray query backend |
-| `MAGN_ENABLE_ASAN`      | OFF     | Address Sanitizer (Debug builds) |
-| `MAGN_ENABLE_TSAN`      | OFF     | Thread Sanitizer (Debug builds) |
+| Option                        | Default | Description |
+|------------------------------|---------|-------------|
+| `MAGNAUNDASONI_BUILD_TESTS`  | `OFF`   | Build unit tests |
+| `MAGNAUNDASONI_ENABLE_RT`    | `OFF`   | Enable hardware ray-tracing backends |
+| `MAGNAUNDASONI_ENABLE_SIMD`  | `ON`    | Enable SIMD optimisations |
 
 ---
 
@@ -96,17 +80,13 @@ ninja
 
 ```bash
 # Run all tests
-ctest --preset debug --output-on-failure
+ctest --test-dir build/debug --output-on-failure
 
-# Run specific test suite
-./build/debug/tests/magn_test_bvh
-./build/debug/tests/magn_test_materials
+# Run the native unit test binary directly
+./build/debug/magnaundasoni_tests
 
 # Run with verbose output
-ctest --preset debug -V
-
-# Run benchmarks (Release build)
-./build/release/benchmarks/magn_bench_raycast
+ctest --test-dir build/debug -V
 ```
 
 ### Test Categories
@@ -120,13 +100,7 @@ ctest --preset debug -V
 
 ### Coverage
 
-```bash
-cmake --preset debug -DMAGN_ENABLE_COVERAGE=ON
-cmake --build --preset debug
-ctest --preset debug
-# Generate coverage report
-gcovr --html-details coverage.html -r src/
-```
+Coverage instrumentation is not yet exposed as a CMake option in this repo.
 
 Minimum coverage target: **80%** on core library code.
 
@@ -149,15 +123,19 @@ Minimum coverage target: **80%** on core library code.
 2. Add or update tests for any new/changed functionality.
 3. Run the full test suite locally:
    ```bash
-   cmake --build --preset debug && ctest --preset debug
+   cmake -S native -B build/debug -G Ninja \
+       -DCMAKE_BUILD_TYPE=Debug \
+       -DMAGNAUNDASONI_BUILD_TESTS=ON
+   cmake --build build/debug
+   ctest --test-dir build/debug --output-on-failure
    ```
 4. Run formatting and linting:
    ```bash
    # Format all changed files
    git diff --name-only main | grep -E '\.(cpp|h)$' | xargs clang-format -i
 
-   # Run static analysis
-   cmake --build --preset debug --target clang-tidy
+   # Run the native test target explicitly (optional)
+   cmake --build build/debug --target magnaundasoni_tests
    ```
 5. Commit with a clear message (see [Commit Messages](#commit-messages)).
 

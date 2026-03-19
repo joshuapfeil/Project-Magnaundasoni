@@ -28,8 +28,11 @@ Create feature/fix branches from `main` and open a pull request back to `main`.
 2. Make your changes following the [code style guide](docs/STYLEGUIDE.md).
 3. Build and test locally (see [BUILD.md](BUILD.md)):
    ```bash
-   cmake --preset debug && cmake --build --preset debug
-   ctest --preset debug --output-on-failure
+   cmake -S native -B build/debug -G Ninja \
+       -DCMAKE_BUILD_TYPE=Debug \
+       -DMAGNAUNDASONI_BUILD_TESTS=ON
+   cmake --build build/debug
+   ctest --test-dir build/debug --output-on-failure
    ```
 4. Format changed files:
    ```bash
@@ -63,17 +66,13 @@ Full rules: [`docs/STYLEGUIDE.md`](docs/STYLEGUIDE.md)
 
 ```bash
 # All unit tests (Debug)
-ctest --preset debug --output-on-failure
+ctest --test-dir build/debug --output-on-failure
 
 # Native unit test binary
 ./build/debug/magnaundasoni_tests
-
-# With coverage
-cmake --preset debug -DMAGN_ENABLE_COVERAGE=ON
-cmake --build --preset debug
-ctest --preset debug
-gcovr --html-details coverage.html -r native/src/
 ```
+
+Coverage reporting is not yet exposed as a CMake option in this repository.
 
 Minimum coverage target: **80 %** on core library code.
 

@@ -29,8 +29,16 @@ cmake -S native -B build/debug -G Ninja \
     -DCMAKE_BUILD_TYPE=Debug \
     -DMAGNAUNDASONI_BUILD_TESTS=ON \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-# Symlink for tools that expect compile_commands.json at the repo root
+# Optional on Linux/macOS: symlink for tools that expect compile_commands.json
+# at the repo root
 ln -sf build/debug/compile_commands.json compile_commands.json
+```
+
+On Windows, create the same link from a Developer Command Prompt or PowerShell
+with Developer Mode enabled:
+
+```powershell
+cmd /c mklink compile_commands.json build\debug\compile_commands.json
 ```
 
 ---
@@ -52,7 +60,7 @@ ln -sf build/debug/compile_commands.json compile_commands.json
 ```json
 {
     "cmake.sourceDirectory": "${workspaceFolder}/native",
-    "cmake.buildDirectory": "${workspaceFolder}/build/${buildType}",
+    "cmake.buildDirectory": "${workspaceFolder}/build/debug",
     "cmake.configureArgs": [
         "-DMAGNAUNDASONI_BUILD_TESTS=ON",
         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
@@ -95,10 +103,10 @@ ln -sf build/debug/compile_commands.json compile_commands.json
 2. CLion detects `CMakeLists.txt` automatically.
 3. Add CMake profiles in **Settings → Build, Execution, Deployment → CMake**:
 
-   | Profile  | Build type | CMake options                                          |
-   |----------|------------|--------------------------------------------------------|
-   | Debug    | Debug      | `-DMAGNAUNDASONI_BUILD_TESTS=ON -DMAGNAUNDASONI_ENABLE_ASAN=ON` |
-   | Release  | Release    | `-DMAGNAUNDASONI_BUILD_TESTS=ON`                       |
+   | Profile  | Build type | CMake options                    |
+   |----------|------------|----------------------------------|
+   | Debug    | Debug      | `-DMAGNAUNDASONI_BUILD_TESTS=ON` |
+   | Release  | Release    | `-DMAGNAUNDASONI_BUILD_TESTS=ON` |
 
 4. Enable **clang-format** integration: **Settings → Editor → Code Style → C/C++ → Enable ClangFormat**.
 5. Run/debug unit tests via the gutter icons next to `TEST` macros or through
@@ -158,20 +166,23 @@ The Unity plugin lives in `unity/plugin/`.
 2. Copy the output library:
    ```bash
    # Linux
+   mkdir -p unity/plugin/Runtime/Plugins/Linux/x86_64
    cp build/release/libmagnaundasoni.so \
        unity/plugin/Runtime/Plugins/Linux/x86_64/
 
    # Windows
+   mkdir unity\plugin\Runtime\Plugins\Windows\x86_64
    copy build\release\magnaundasoni.dll \
        unity\plugin\Runtime\Plugins\Windows\x86_64\
 
    # macOS
+   mkdir -p unity/plugin/Runtime/Plugins/macOS
    cp build/release/libmagnaundasoni.dylib \
        unity/plugin/Runtime/Plugins/macOS/
    ```
 3. Open `unity/samples/MagnaundasoniDemo/` in the Unity Editor.
 4. The `MagnaundasoniEngine` MonoBehaviour auto-registers scene geometry on
-   start (see [`docs/Integration-Unity.md`](../Integration-Unity.md)).
+   start (see [`docs/Integration-Unity.md`](Integration-Unity.md)).
 
 ### Recommended VS Code extensions for C# / Unity
 
@@ -191,12 +202,13 @@ The Unreal plugin lives in `unreal/Plugin/`.
 - Visual Studio 2022 with **Game Development with C++** workload (Windows)
   or Xcode 14+ (macOS)
 - The native `magnaundasoni` library must be built and placed in
-  `unreal/Plugin/Source/ThirdParty/Magnaundasoni/<platform>/`.
+  `unreal/Plugin/Source/Magnaundasoni/ThirdParty/Magnaundasoni/<platform>/`.
 
 ### Setup steps
 
 1. Build the native library (see [BUILD.md](../BUILD.md)).
-2. Copy the shared library into the plugin's `ThirdParty` directory.
+2. Copy the shared library into the plugin's
+   `Source/Magnaundasoni/ThirdParty/Magnaundasoni/<platform>/` directory.
 3. Right-click `unreal/Plugin/Magnaundasoni.uplugin` → **Generate Visual Studio
    Project Files** (Windows) or equivalent on macOS.
 4. Open the generated solution / workspace and build the `MagnaundasoniEditor`
@@ -210,7 +222,7 @@ The Unreal plugin lives in `unreal/Plugin/`.
   Unreal Editor.
 - The plugin's `Source/` tree follows the standard Unreal module layout; add
   new files through the **New C++ Class** wizard to keep `.Build.cs` in sync.
-- See [`docs/Integration-Unreal.md`](../Integration-Unreal.md) for the full
+- See [`docs/Integration-Unreal.md`](Integration-Unreal.md) for the full
   Unreal-specific integration guide.
 
 ---
