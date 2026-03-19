@@ -1,0 +1,214 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]*.[0-9]*.[0-9]*"
+
+permissions:
+  contents: write  # needed to create a GitHub Release and upload assets
+
+# Cancel in-progress runs for the same tag to avoid double-uploads.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Build native library for each supported platform
+  # ---------------------------------------------------------------------------
+  build-native:
+    name: Build native (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux
+            arch: x64
+          - os: windows-2022
+            platform: windows
+            arch: x64
+          - os: macos-14
+            platform: macos
+            arch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y cmake ninja-build zip
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install cmake ninja zip
+
+      - name: Install system dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          choco install ninja -y
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------------
+      # POSIX platforms (Linux / macOS)
+      # ------------------------------------------------------------------
+      - name: Build and package native (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          chmod +x scripts/package-native.sh
+          scripts/package-native.sh --version "${{ steps.version.outputs.version }}"
+
+      # ------------------------------------------------------------------
+      # Windows
+      # ------------------------------------------------------------------
+      - name: Build and package native (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          scripts\package-native.ps1 -Version "${{ steps.version.outputs.version }}"
+
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.platform }}-${{ matrix.arch }}
+          path: dist/native/*.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Package Unity plugin (platform-independent)
+  # ---------------------------------------------------------------------------
+  package-unity:
+    name: Package Unity plugin
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install zip
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y zip
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: |
+          TAG="${{ github.ref_name }}"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Package Unity plugin
+        run: |
+          chmod +x scripts/package-unity.sh
+          scripts/package-unity.sh --version "${{ steps.version.outputs.version }}"
+
+      - name: Upload Unity artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-plugin
+          path: dist/unity/*.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Package Unreal plugin (platform-independent)
+  # ---------------------------------------------------------------------------
+  package-unreal:
+    name: Package Unreal plugin
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install zip
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y zip
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: |
+          TAG="${{ github.ref_name }}"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Package Unreal plugin
+        run: |
+          chmod +x scripts/package-unreal.sh
+          scripts/package-unreal.sh --version "${{ steps.version.outputs.version }}"
+
+      - name: Upload Unreal artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: unreal-plugin
+          path: dist/unreal/*.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Publish GitHub Release and attach all artefacts
+  # ---------------------------------------------------------------------------
+  publish-release:
+    name: Publish release
+    needs: [build-native, package-unity, package-unreal]
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout (for release notes helper)
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts/
+      # Downloads all artifacts from this run into sub-folders named by
+          # artifact name.
+
+      - name: Flatten artifact directory
+        run: |
+          mkdir -p release-assets
+          find release-artifacts/ -name "*.zip" -exec cp {} release-assets/ \;
+          ls -lh release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Magnaundasoni ${{ github.ref_name }}"
+          body: |
+            ## Magnaundasoni ${{ github.ref_name }}
+
+            ### Artifacts
+            | File | Description |
+            |------|-------------|
+            | `magnaundasoni-native-linux-x64-*.zip` | Pre-built shared library for Linux x64 |
+            | `magnaundasoni-native-windows-x64-*.zip` | Pre-built DLL + import library for Windows x64 |
+            | `magnaundasoni-native-macos-arm64-*.zip` | Pre-built dylib for macOS Apple Silicon |
+            | `magnaundasoni-unity-*.zip` | Unity Package Manager plugin (UPM) |
+            | `magnaundasoni-unreal-*.zip` | Unreal Engine 5 plugin source |
+
+            ### Installation
+            See [RELEASE_PROCESS.md](https://github.com/${{ github.repository }}/blob/main/docs/RELEASE_PROCESS.md)
+            for detailed installation instructions.
+
+            > ⚠️ Unreal binaries are **not** included in the Unreal zip — run Unreal Build Tool
+            > locally after dropping the plugin into your project's `Plugins/` folder.
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: release-assets/*.zip
+          fail_on_unmatched_files: true
