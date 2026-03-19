@@ -1,0 +1,100 @@
+name: Build Native
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: bash ci/scripts/linux_setup.sh
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ci\scripts\windows_setup.ps1
+
+      - name: Configure (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S native -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DMAGNAUNDASONI_BUILD_TESTS=ON \
+            -DMAGNAUNDASONI_ENABLE_SIMD=OFF \
+            -DMAGNAUNDASONI_ENABLE_RT=OFF
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmake -S native -B build `
+            -G "Visual Studio 17 2022" -A x64 `
+            -DMAGNAUNDASONI_BUILD_TESTS=ON `
+            -DMAGNAUNDASONI_ENABLE_SIMD=OFF `
+            -DMAGNAUNDASONI_ENABLE_RT=OFF
+
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: cmake --build build --config Release --parallel
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: cmake --build build --config Release --parallel
+
+      - name: Run unit tests (Linux)
+        if: runner.os == 'Linux'
+        working-directory: build
+        run: ctest --build-config Release --output-on-failure --parallel 1
+
+      - name: Run unit tests (Windows)
+        if: runner.os == 'Windows'
+        working-directory: build
+        shell: pwsh
+        run: ctest --build-config Release --output-on-failure --parallel 1
+
+      - name: Package artifact (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          rm -rf dist
+          mkdir -p dist
+          cmake --install build --config Release --prefix dist
+          test -f dist/lib/libmagnaundasoni.so
+          cd dist && zip -r ../magnaundasoni-native-${{ matrix.os }}.zip .
+
+      - name: Package artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (Test-Path dist) { Remove-Item -Recurse -Force dist }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          cmake --install build --config Release --prefix dist
+          if (-not (Test-Path dist\bin\magnaundasoni.dll)) { Write-Error "Expected dist\bin\magnaundasoni.dll was not created during install."; exit 1 }
+          if (-not (Test-Path dist\lib\magnaundasoni.lib)) { Write-Error "Expected dist\lib\magnaundasoni.lib was not created during install."; exit 1 }
+          Compress-Archive -Path dist\* -DestinationPath magnaundasoni-native-${{ matrix.os }}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: magnaundasoni-native-${{ matrix.os }}
+          path: magnaundasoni-native-${{ matrix.os }}.zip
+          retention-days: 14
