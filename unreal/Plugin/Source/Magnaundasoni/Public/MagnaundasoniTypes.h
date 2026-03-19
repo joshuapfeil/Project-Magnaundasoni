@@ -52,7 +52,7 @@ struct MAGNAUNDASONI_API FMagBandArray
 {
     GENERATED_BODY()
 
-    /** Band values for 125, 250, 500, 1k, 2k, 4k, 8k, 16k Hz. */
+    /** Band values for 63, 125, 250, 500, 1k, 2k, 4k, 8k Hz. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Magnaundasoni")
     TArray<float> Values;
 
