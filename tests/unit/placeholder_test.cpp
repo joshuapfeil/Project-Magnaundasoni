@@ -2,17 +2,20 @@
  * @file placeholder_test.cpp
  * @brief Unit tests for the Magnaundasoni native acoustics engine.
  *
- * Tests cover the public C ABI:
- *  - Compile-time constants and enum values
- *  - Engine lifecycle (create / destroy)
- *  - Parameter validation (null / invalid inputs)
- *  - Material preset lookup
+ * Tests cover the public C ABI plus a minimal set of band-math sanity checks
+ * so CI can validate both the exported runtime surface and the canonical
+ * 8-band frequency model.
  */
 
 #include <catch2/catch_test_macros.hpp>
 
-// Include the public C ABI
 #include "Magnaundasoni.h"
+#include "render/BandProcessor.h"
+
+#include <cmath>
+
+using namespace magnaundasoni;
+using namespace magnaundasoni::BandProcessor;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -75,7 +78,6 @@ TEST_CASE("Engine create returns error for null config", "[engine][lifecycle]") 
     MagEngine engine = nullptr;
     MagStatus status = mag_engine_create(nullptr, &engine);
 
-    // Null config must not succeed
     REQUIRE(status != MAG_OK);
     REQUIRE(engine == nullptr);
 }
@@ -111,19 +113,19 @@ TEST_CASE("mag_get_global_state returns error for null engine", "[engine][valida
 
 TEST_CASE("mag_source_register returns error for null engine", "[source][validation]") {
     MagSourceDesc desc{};
-    MagSourceID   id = 0;
+    MagSourceID id = 0;
     REQUIRE(mag_source_register(nullptr, &desc, &id) != MAG_OK);
 }
 
 TEST_CASE("mag_listener_register returns error for null engine", "[listener][validation]") {
     MagListenerDesc desc{};
-    MagListenerID   id = 0;
+    MagListenerID id = 0;
     REQUIRE(mag_listener_register(nullptr, &desc, &id) != MAG_OK);
 }
 
 TEST_CASE("mag_geometry_register returns error for null engine", "[geometry][validation]") {
     MagGeometryDesc desc{};
-    MagGeometryID   id = 0;
+    MagGeometryID id = 0;
     REQUIRE(mag_geometry_register(nullptr, &desc, &id) != MAG_OK);
 }
 
@@ -137,7 +139,6 @@ TEST_CASE("Known material preset 'concrete' can be retrieved", "[material][prese
 
     REQUIRE(status == MAG_OK);
 
-    // Absorption values must be in [0, 1]
     for (int i = 0; i < MAG_MAX_BANDS; ++i) {
         REQUIRE(desc.absorption[i] >= 0.0f);
         REQUIRE(desc.absorption[i] <= 1.0f);
@@ -183,7 +184,7 @@ TEST_CASE("mag_get_global_state returns valid data after update", "[engine][stat
     MagGlobalState state{};
     MagStatus status = mag_get_global_state(engine, &state);
     REQUIRE(status == MAG_OK);
-    REQUIRE(state.activeSourceCount == 0); // no sources registered
+    REQUIRE(state.activeSourceCount == 0);
 
     mag_engine_destroy(engine);
 }
@@ -194,10 +195,58 @@ TEST_CASE("mag_set_quality accepts all valid levels", "[engine][quality]") {
 
     REQUIRE(mag_engine_create(&cfg, &engine) == MAG_OK);
 
-    REQUIRE(mag_set_quality(engine, MAG_QUALITY_LOW)    == MAG_OK);
+    REQUIRE(mag_set_quality(engine, MAG_QUALITY_LOW) == MAG_OK);
     REQUIRE(mag_set_quality(engine, MAG_QUALITY_MEDIUM) == MAG_OK);
-    REQUIRE(mag_set_quality(engine, MAG_QUALITY_HIGH)   == MAG_OK);
-    REQUIRE(mag_set_quality(engine, MAG_QUALITY_ULTRA)  == MAG_OK);
+    REQUIRE(mag_set_quality(engine, MAG_QUALITY_HIGH) == MAG_OK);
+    REQUIRE(mag_set_quality(engine, MAG_QUALITY_ULTRA) == MAG_OK);
 
     mag_engine_destroy(engine);
+}
+
+// ---------------------------------------------------------------------------
+// Band-math placeholder coverage
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Band center frequencies match the canonical 8-band schema", "[bands][placeholder]") {
+    static constexpr float kExpected[8] = {
+        63.0f, 125.0f, 250.0f, 500.0f, 1000.0f, 2000.0f, 4000.0f, 8000.0f
+    };
+
+    for (int i = 0; i < 8; ++i) {
+        REQUIRE(std::fabs(kBandCenterFrequencies[i] - kExpected[i]) <= 0.01f);
+    }
+
+    for (int i = 1; i < 8; ++i) {
+        float ratio = kBandCenterFrequencies[i] / kBandCenterFrequencies[i - 1];
+        REQUIRE(std::fabs(ratio - 2.0f) <= 0.05f);
+    }
+}
+
+TEST_CASE("Sum of unity band gains stays within the expected range", "[bands][placeholder]") {
+    BandArray ones = bandFill(1.0f);
+    REQUIRE(bandSum(ones) == 8.0f);
+}
+
+TEST_CASE("Band helpers preserve basic gain math invariants", "[bands][placeholder]") {
+    BandArray a = bandFill(0.5f);
+    BandArray b = bandFill(0.3f);
+    BandArray ones = bandFill(1.0f);
+
+    BandArray added = bandAdd(a, b);
+    BandArray scaled = bandScale(ones, 0.5f);
+    BandArray multiplied = bandMultiply(added, ones);
+    BandArray interpolated = bandInterpolate(a, ones, 0.5f);
+    BandArray clamped = bandClamp({-1.0f, 0.0f, 0.5f, 1.0f, 1.5f, 2.0f, -0.5f, 0.9f}, 0.0f, 1.0f);
+
+    for (int i = 0; i < 8; ++i) {
+        REQUIRE(std::fabs(added[i] - 0.8f) <= 1e-5f);
+        REQUIRE(std::fabs(scaled[i] - 0.5f) <= 1e-6f);
+        REQUIRE(std::fabs(multiplied[i] - added[i]) <= 1e-6f);
+        REQUIRE(std::fabs(interpolated[i] - 0.75f) <= 1e-6f);
+        REQUIRE(clamped[i] >= 0.0f);
+        REQUIRE(clamped[i] <= 1.0f);
+    }
+
+    REQUIRE(std::fabs(bandMax({0.1f, 0.2f, 0.9f, 0.4f, 0.3f, 0.8f, 0.5f, 0.6f}) - 0.9f) <= 1e-6f);
+    REQUIRE(std::fabs(linearToDb(dbToLinear(-6.0f)) + 6.0f) <= 1e-3f);
 }
