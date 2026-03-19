@@ -65,8 +65,8 @@ Full rules: [`docs/STYLEGUIDE.md`](docs/STYLEGUIDE.md)
 # All unit tests (Debug)
 ctest --preset debug --output-on-failure
 
-# Specific suite
-./build/debug/tests/magn_test_bvh
+# Native unit test binary
+./build/debug/magnaundasoni_tests
 
 # With coverage
 cmake --preset debug -DMAGN_ENABLE_COVERAGE=ON

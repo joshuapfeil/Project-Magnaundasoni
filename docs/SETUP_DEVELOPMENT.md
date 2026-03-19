@@ -80,7 +80,7 @@ ln -sf build/debug/compile_commands.json compile_commands.json
             "name": "Unit Tests (LLDB)",
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/build/debug/tests/magn_test_unit_placeholder",
+            "program": "${workspaceFolder}/build/debug/magnaundasoni_tests",
             "cwd": "${workspaceFolder}"
         }
     ]

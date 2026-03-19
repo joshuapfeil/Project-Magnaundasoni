@@ -191,8 +191,8 @@ ctest --test-dir build/debug --output-on-failure
 # Run with verbose output
 ctest --test-dir build/debug -V
 
-# Run a specific test binary directly
-./build/debug/tests/magn_test_unit_placeholder
+# Run the native unit test binary directly
+./build/debug/magnaundasoni_tests
 
 # Generate coverage report (requires MAGNAUNDASONI_ENABLE_COVERAGE=ON)
 gcovr --html-details coverage/index.html -r native/src/
