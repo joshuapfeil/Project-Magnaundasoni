@@ -27,10 +27,6 @@ jobs:
         if: runner.os == 'Linux'
         run: bash ci/scripts/linux_setup.sh
 
-      - name: Set up Ninja (Windows)
-        if: runner.os == 'Windows'
-        uses: seanmiddleditch/gha-setup-ninja@v4
-
       - name: Configure (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -63,13 +59,13 @@ jobs:
       - name: Run unit tests (Linux)
         if: runner.os == 'Linux'
         working-directory: build
-        run: ctest --build-config Release --output-on-failure --parallel 1 -R magnaundasoni
+        run: ctest --build-config Release --output-on-failure --parallel 1
 
       - name: Run unit tests (Windows)
         if: runner.os == 'Windows'
         working-directory: build
         shell: pwsh
-        run: ctest --build-config Release --output-on-failure --parallel 1 -R magnaundasoni
+        run: ctest --build-config Release --output-on-failure --parallel 1
 
       - name: Upload test results
         if: always()

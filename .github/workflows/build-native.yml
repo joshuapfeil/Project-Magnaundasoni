@@ -32,10 +32,6 @@ jobs:
         shell: pwsh
         run: ci\scripts\windows_setup.ps1
 
-      - name: Set up Ninja (Windows)
-        if: runner.os == 'Windows'
-        uses: seanmiddleditch/gha-setup-ninja@v4
-
       - name: Configure (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -79,19 +75,21 @@ jobs:
       - name: Package artifact (Linux)
         if: runner.os == 'Linux'
         run: |
+          rm -rf dist
           mkdir -p dist
-          cp build/libmagnaundasoni.so dist/ 2>/dev/null || true
-          cp native/include/Magnaundasoni.h dist/
+          cmake --install build --config Release --prefix dist
+          test -f dist/lib/libmagnaundasoni.so
           cd dist && zip -r ../magnaundasoni-native-${{ matrix.os }}.zip .
 
       - name: Package artifact (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          if (Test-Path dist) { Remove-Item -Recurse -Force dist }
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item build\Release\magnaundasoni.dll dist\ -ErrorAction SilentlyContinue
-          Copy-Item build\Release\magnaundasoni.lib dist\ -ErrorAction SilentlyContinue
-          Copy-Item native\include\Magnaundasoni.h dist\
+          cmake --install build --config Release --prefix dist
+          if (-not (Test-Path dist\bin\magnaundasoni.dll)) { Write-Error "Expected dist\bin\magnaundasoni.dll was not created during install."; exit 1 }
+          if (-not (Test-Path dist\lib\magnaundasoni.lib)) { Write-Error "Expected dist\lib\magnaundasoni.lib was not created during install."; exit 1 }
           Compress-Archive -Path dist\* -DestinationPath magnaundasoni-native-${{ matrix.os }}.zip
 
       - name: Upload artifact

@@ -135,13 +135,12 @@ TEST_CASE("Known material preset 'concrete' can be retrieved", "[material][prese
     MagMaterialDesc desc{};
     MagStatus status = mag_material_get_preset("concrete", &desc);
 
-    // Preset must either succeed or indicate not-found gracefully
-    if (status == MAG_OK) {
-        // Absorption values must be in [0, 1]
-        for (int i = 0; i < MAG_MAX_BANDS; ++i) {
-            REQUIRE(desc.absorption[i] >= 0.0f);
-            REQUIRE(desc.absorption[i] <= 1.0f);
-        }
+    REQUIRE(status == MAG_OK);
+
+    // Absorption values must be in [0, 1]
+    for (int i = 0; i < MAG_MAX_BANDS; ++i) {
+        REQUIRE(desc.absorption[i] >= 0.0f);
+        REQUIRE(desc.absorption[i] <= 1.0f);
     }
 }
 

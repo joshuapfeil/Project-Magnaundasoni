@@ -13,6 +13,7 @@ sudo apt-get install -y --no-install-recommends \
     ninja-build \
     git \
     unzip \
+    zip \
     wget
 
 echo "==> Dependency installation complete."

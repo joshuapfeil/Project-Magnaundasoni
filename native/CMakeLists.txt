@@ -196,7 +196,7 @@ if(MAGNAUNDASONI_BUILD_TESTS)
 
     # Inherit C++ standard from main target
     set_target_properties(magnaundasoni_tests PROPERTIES
-        CXX_STANDARD 20
+        CXX_STANDARD ${CMAKE_CXX_STANDARD}
         CXX_STANDARD_REQUIRED ON
         CXX_EXTENSIONS OFF
     )
