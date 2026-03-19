@@ -21,8 +21,9 @@
 #   package-native.sh) will be included automatically if present.
 #
 #   The resulting archive is suitable for:
-#     • UPM installation via "Add package from tarball" (after renaming to
-#       .tgz and compressing with tar+gzip), or
+#     • UPM installation via "Add package from tarball" after first extracting
+#       this .zip and re-packaging its contents as a .tgz (tar.gz) with
+#       package.json at the archive root, or
 #     • manual extraction into a project's Packages/ folder.
 #
 # Notes:
@@ -86,13 +87,13 @@ fi
 (
     cd "$REPO_ROOT/unity"
     zip -r "$DIST_DIR/${ARCHIVE_NAME}.zip" plugin/ \
-        --exclude "plugin/*/Library/*" \
-        --exclude "plugin/*/Temp/*" \
-        --exclude "plugin/*/Obj/*" \
-        --exclude "plugin/*/Build/*" \
-        --exclude "plugin/*/Logs/*" \
-        --exclude "plugin/*.sln" \
-        --exclude "plugin/*.csproj"
+        -x "plugin/*/Library/*" \
+        -x "plugin/*/Temp/*" \
+        -x "plugin/*/Obj/*" \
+        -x "plugin/*/Build/*" \
+        -x "plugin/*/Logs/*" \
+        -x "plugin/*.sln" \
+        -x "plugin/*.csproj"
 )
 
 echo "==> Archive created: $DIST_DIR/${ARCHIVE_NAME}.zip"

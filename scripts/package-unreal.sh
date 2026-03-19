@@ -77,17 +77,44 @@ if [ ! -f "$UPLUGIN" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Stage native headers alongside plugin source so the package is
+# self-contained when dropped into a project's Plugins/ directory.
+# The ThirdParty tree is added temporarily and cleaned up afterwards.
+# ---------------------------------------------------------------------------
+NATIVE_THIRDPARTY="$PLUGIN_DIR/Source/ThirdParty/Magnaundasoni"
+NATIVE_INCLUDE_SRC="$REPO_ROOT/native/include"
+
+if [ -d "$NATIVE_INCLUDE_SRC" ]; then
+    mkdir -p "$NATIVE_THIRDPARTY"
+    cp -r "$NATIVE_INCLUDE_SRC" "$NATIVE_THIRDPARTY/include"
+    CLEANUP_THIRDPARTY=1
+else
+    echo "WARNING: native/include not found; headers will not be bundled." >&2
+    CLEANUP_THIRDPARTY=0
+fi
+
+# ---------------------------------------------------------------------------
 # Create archive
 # Exclude generated directories that UBT recreates on first build.
 # ---------------------------------------------------------------------------
 (
     cd "$REPO_ROOT/unreal"
     zip -r "$DIST_DIR/${ARCHIVE_NAME}.zip" Plugin/ \
-        --exclude "Plugin/Binaries/*" \
-        --exclude "Plugin/Intermediate/*" \
-        --exclude "Plugin/Saved/*" \
-        --exclude "Plugin/DerivedDataCache/*" \
-        --exclude "Plugin/.vs/*"
+        -x "Plugin/Binaries/*" \
+        -x "Plugin/Intermediate/*" \
+        -x "Plugin/Saved/*" \
+        -x "Plugin/DerivedDataCache/*" \
+        -x "Plugin/.vs/*"
 )
+
+# Clean up the temporarily staged ThirdParty headers
+if [ "${CLEANUP_THIRDPARTY:-0}" -eq 1 ]; then
+    rm -rf "$NATIVE_THIRDPARTY"
+    # Remove the ThirdParty parent only if it is now empty
+    THIRDPARTY_PARENT="$(dirname "$NATIVE_THIRDPARTY")"
+    if [ -d "$THIRDPARTY_PARENT" ] && [ -z "$(ls -A "$THIRDPARTY_PARENT")" ]; then
+        rm -rf "$THIRDPARTY_PARENT"
+    fi
+fi
 
 echo "==> Archive created: $DIST_DIR/${ARCHIVE_NAME}.zip"

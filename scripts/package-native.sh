@@ -27,6 +27,12 @@
 set -eu
 
 # ---------------------------------------------------------------------------
+# Resolve repository root first so every subsequent path is absolute,
+# regardless of the directory from which this script is invoked.
+# ---------------------------------------------------------------------------
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
 VERSION=""
@@ -49,7 +55,7 @@ done
 # Detect version from CMakeLists.txt when not supplied
 # ---------------------------------------------------------------------------
 if [ -z "$VERSION" ]; then
-    VERSION=$(grep -m1 "project(Magnaundasoni VERSION" native/CMakeLists.txt \
+    VERSION=$(grep -m1 "project(Magnaundasoni VERSION" "$REPO_ROOT/native/CMakeLists.txt" \
         | sed 's/.*VERSION[[:space:]]*\([0-9][0-9.]*\).*/\1/')
     VERSION="${VERSION:-dev}"
 fi
@@ -77,7 +83,6 @@ ARCHIVE_NAME="magnaundasoni-native-${PLATFORM}-${ARCH_TAG}-${VERSION}"
 # ---------------------------------------------------------------------------
 # Directories
 # ---------------------------------------------------------------------------
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NATIVE_DIR="$REPO_ROOT/native"
 BUILD_DIR="$NATIVE_DIR/build"
 STAGE_DIR="$REPO_ROOT/dist/native/stage-${PLATFORM}-${ARCH_TAG}"
@@ -124,11 +129,11 @@ built_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 EOF
 
 # ---------------------------------------------------------------------------
-# Zip
+# Zip — archive contents only so lib/, include/, and VERSION are at the root.
 # ---------------------------------------------------------------------------
 mkdir -p "$DIST_DIR"
 
-(cd "$STAGE_DIR/.." && zip -r "$DIST_DIR/${ARCHIVE_NAME}.zip" "$(basename "$STAGE_DIR")/")
+(cd "$STAGE_DIR" && zip -r "$DIST_DIR/${ARCHIVE_NAME}.zip" .)
 
 echo "==> Archive created: $DIST_DIR/${ARCHIVE_NAME}.zip"
 

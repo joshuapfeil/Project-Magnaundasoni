@@ -66,9 +66,18 @@ jobs:
       # ------------------------------------------------------------------
       # POSIX platforms (Linux / macOS)
       # ------------------------------------------------------------------
-      - name: Build and package native (POSIX)
-        if: runner.os != 'Windows'
+      - name: Build and package native (Linux)
+        if: runner.os == 'Linux'
         shell: bash
+        run: |
+          chmod +x scripts/package-native.sh
+          scripts/package-native.sh --version "${{ steps.version.outputs.version }}"
+
+      - name: Build and package native (macOS, SIMD disabled for arm64)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          MAGNAUNDASONI_ENABLE_SIMD: "OFF"
         run: |
           chmod +x scripts/package-native.sh
           scripts/package-native.sh --version "${{ steps.version.outputs.version }}"
@@ -208,7 +217,7 @@ jobs:
 
             > ⚠️ Unreal binaries are **not** included in the Unreal zip — run Unreal Build Tool
             > locally after dropping the plugin into your project's `Plugins/` folder.
-          draft: false
+          draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: release-assets/*.zip
           fail_on_unmatched_files: true

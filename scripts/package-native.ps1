@@ -117,8 +117,8 @@ built_at=$BuiltAt
 # ---------------------------------------------------------------------------
 $ArchiveOut = Join-Path $DistDir "$ArchiveName.zip"
 
-# Use Compress-Archive (PowerShell 5+) with a wildcard so the top-level dir
-# inside the zip is the staging folder name, not an absolute path.
+# Use Compress-Archive (PowerShell 5+) with a wildcard so that only the
+# contents of the staging directory are added at the top level of the zip.
 Compress-Archive -Path "$StageDir\*" -DestinationPath $ArchiveOut -Force
 
 Write-Host "==> Archive created: $ArchiveOut"

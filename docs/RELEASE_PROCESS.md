@@ -68,7 +68,7 @@ the GitHub Release:
 | `magnaundasoni-native-windows-x64-<ver>.zip` | `bin/magnaundasoni.dll`, `lib/magnaundasoni.lib`, `include/Magnaundasoni.h`, `VERSION` |
 | `magnaundasoni-native-macos-arm64-<ver>.zip` | `lib/libmagnaundasoni.dylib`, `include/Magnaundasoni.h`, `VERSION` |
 | `magnaundasoni-unity-<ver>.zip` | Full `unity/plugin/` tree (UPM layout) |
-| `magnaundasoni-unreal-<ver>.zip` | Full `unreal/Plugin/` tree (source, no Binaries/) |
+| `magnaundasoni-unreal-<ver>.zip` | Full `unreal/Plugin/` tree (source + bundled native headers; no pre-built binaries) |
 
 ---
 
@@ -86,12 +86,13 @@ git tag -a v1.2.3 -m "Release v1.2.3"
 git push origin v1.2.3
 ```
 
-Monitor the workflow at:
-`https://github.com/joshuapfeil/Project-Magnaundasoni/actions`
+Monitor the workflow in the repository's **Actions** tab (for example:
+`https://github.com/<org>/<repo>/actions`).
 
-The release is created as a **draft** initially (controlled by the `draft:`
-flag in the workflow).  Review the generated release notes and attached
-artifacts, then publish when satisfied.
+The workflow creates the release as a **draft** so you can review the
+generated release notes and attached artifacts before publishing.  Open the
+draft release in the GitHub UI, make any necessary edits, then click
+**Publish release** when satisfied.
 
 ---
 
@@ -151,12 +152,21 @@ Supported subfolder names follow Unity's platform naming:
 
 Add or update the corresponding `.meta` files if you edit these paths.
 
-**Unreal** — Extract the appropriate ZIP and copy the library into:
+**Unreal** — The Unreal plugin ZIP already includes native headers under
+`Plugin/Source/ThirdParty/Magnaundasoni/include/` (bundled by
+`package-unreal.sh`).  To add pre-built native libraries for a specific
+platform, extract the native ZIP for that platform and copy the library file
+into the matching subdirectory inside the plugin:
+
 ```
-unreal/Plugin/Binaries/ThirdParty/Magnaundasoni/<Platform>/
+Plugin/Source/ThirdParty/Magnaundasoni/Win64/magnaundasoni.dll
+Plugin/Source/ThirdParty/Magnaundasoni/Win64/magnaundasoni.lib
+Plugin/Source/ThirdParty/Magnaundasoni/Linux/libmagnaundasoni.so
+Plugin/Source/ThirdParty/Magnaundasoni/Mac/libmagnaundasoni.dylib
 ```
 
-Adjust `Magnaundasoni.Build.cs` if the path changes.
+`Magnaundasoni.Build.cs` automatically detects these paths and uses them
+instead of the repo-relative `native/build/` path.
 
 ### Step 4 — Package the Unity plugin
 
@@ -213,12 +223,18 @@ gh release create v1.2.3 \
 1. Download `magnaundasoni-unreal-<ver>.zip`.
 2. Extract it; the top-level directory is `Plugin/`.
 3. Copy `Plugin/` into your project's `Plugins/Magnaundasoni/` folder.
-4. Right-click your `.uproject` file → *Generate Visual Studio project files*.
-5. Build the project; UBT will compile the plugin automatically.
+4. Download the native ZIP for your target platform and copy the library file
+   into `Plugins/Magnaundasoni/Source/ThirdParty/Magnaundasoni/<Platform>/`
+   (see [Step 3](#step-3--optional-inject-native-binaries-into-unityunreal-plugin-trees)
+   for exact filenames).  `Magnaundasoni.Build.cs` picks up these files
+   automatically.
+5. Right-click your `.uproject` file → *Generate Visual Studio project files*.
+6. Build the project; UBT will compile the plugin using the bundled headers
+   and the pre-built library you placed in the ThirdParty directory.
 
-> The plugin does not ship pre-built binaries in the Unreal ZIP.  UBT must
-> compile the plugin on first use.  Ensure the Magnaundasoni native library
-> headers referenced in `Magnaundasoni.Build.cs` are accessible.
+> If you skip step 4 (no pre-built library), UBT will look for the native
+> library in the development tree (`native/build/`).  This path only exists
+> when building from within the repository.
 
 ---
 
