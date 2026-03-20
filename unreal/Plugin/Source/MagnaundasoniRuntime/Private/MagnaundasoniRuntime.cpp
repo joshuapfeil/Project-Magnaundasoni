@@ -15,8 +15,9 @@ DEFINE_LOG_CATEGORY_STATIC(LogMagnaundasoniRuntime, Log, All);
 // Module-level globals (safe because UE modules are loaded on the game thread)
 // ---------------------------------------------------------------------------
 static FMagNativeBridge  GBridge;
-static MagEngine         GNativeEngine   = nullptr;
-static void*             GExtraLibHandle = nullptr;  // extra DllHandle ref we hold
+static MagEngine         GNativeEngine         = nullptr;
+static void*             GExtraLibHandle        = nullptr;  // extra DllHandle ref we hold
+static uint32            GPrimaryListenerID     = 0;
 
 // ---------------------------------------------------------------------------
 // FMagnaundasoniRuntimeModule  (statics)
@@ -37,6 +38,16 @@ MagEngine FMagnaundasoniRuntimeModule::GetNativeEngine()
 const FMagNativeBridge* FMagnaundasoniRuntimeModule::GetBridge()
 {
     return GBridge.IsValid() ? &GBridge : nullptr;
+}
+
+void FMagnaundasoniRuntimeModule::SetPrimaryListenerID(uint32 ListenerID)
+{
+    GPrimaryListenerID = ListenerID;
+}
+
+uint32 FMagnaundasoniRuntimeModule::GetPrimaryListenerID()
+{
+    return GPrimaryListenerID;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,12 +120,13 @@ void FMagnaundasoniRuntimeModule::ShutdownModule()
 // ---------------------------------------------------------------------------
 
 void FMagnaundasoniRuntimeModule::OnWorldPostActorTick(
-    UWorld* World, ELevelTick TickType, float DeltaSeconds)
+    UWorld* World, ELevelTick /*TickType*/, float DeltaSeconds)
 {
     if (!GNativeEngine || !GBridge.Update) return;
 
-    // Only advance the simulation for game worlds (not editor preview worlds).
-    if (TickType != LEVELTICK_All && TickType != LEVELTICK_ViewportsOnly) return;
+    // Only advance the simulation for game worlds (not editor preview worlds,
+    // PIE spectator viewports, or editor-only ticks).
+    if (!World || !World->IsGameWorld()) return;
 
     GBridge.Update(reinterpret_cast<MagEngineNative>(GNativeEngine), DeltaSeconds);
 }

@@ -63,8 +63,11 @@ static void ConvertResult(const FMagAcousticResultNative& Src, FMagAcousticResul
         Dst.Direct.PerBandGain.Values[b] = Src.direct.perBandGain[b];
 
     // Reflections
-    Dst.Reflections.SetNum(Src.reflectionCount);
-    for (uint32 i = 0; i < Src.reflectionCount; ++i)
+    // Guard against malformed native data where reflectionCount > 0 but the
+    // pointer is null (e.g., native engine allocation failure).
+    const uint32 ReflectionCount = (Src.reflections != nullptr) ? Src.reflectionCount : 0;
+    Dst.Reflections.SetNum(ReflectionCount);
+    for (uint32 i = 0; i < ReflectionCount; ++i)
     {
         const FMagReflectionTapNative& S = Src.reflections[i];
         FMagReflectionTap& D             = Dst.Reflections[i];
@@ -79,8 +82,11 @@ static void ConvertResult(const FMagAcousticResultNative& Src, FMagAcousticResul
     }
 
     // Diffractions
-    Dst.Diffractions.SetNum(Src.diffractionCount);
-    for (uint32 i = 0; i < Src.diffractionCount; ++i)
+    // Guard against malformed native data where diffractionCount > 0 but the
+    // pointer is null (e.g., native engine allocation failure).
+    const uint32 DiffractionCount = (Src.diffractions != nullptr) ? Src.diffractionCount : 0;
+    Dst.Diffractions.SetNum(DiffractionCount);
+    for (uint32 i = 0; i < DiffractionCount; ++i)
     {
         const FMagDiffractionTapNative& S = Src.diffractions[i];
         FMagDiffractionTap& D             = Dst.Diffractions[i];
@@ -256,15 +262,17 @@ void UMagSourceComponent::QueryAndApplyAcousticResult()
     MagEngine Engine = FMagnaundasoniRuntimeModule::GetNativeEngine();
     if (!Bridge || !Engine || !Bridge->GetAcousticResult) return;
 
-    // Use listener ID 1 as the primary listener (the runtime convention).
-    // If no listener is registered yet the native engine will return default data.
-    constexpr MagListenerIDNative kPrimaryListenerID = 1;
+    // Query against the actual primary listener ID tracked by the runtime module.
+    // If no listener is registered yet, skip the query (returns 0 sentinel).
+    const MagListenerIDNative PrimaryListenerID =
+        static_cast<MagListenerIDNative>(FMagnaundasoniRuntimeModule::GetPrimaryListenerID());
+    if (PrimaryListenerID == 0) return;
 
     FMagAcousticResultNative NativeResult = {};
     const MagStatusNative Status = Bridge->GetAcousticResult(
         reinterpret_cast<MagEngineNative>(Engine),
         static_cast<MagSourceIDNative>(SourceID),
-        kPrimaryListenerID,
+        PrimaryListenerID,
         &NativeResult);
 
     if (Status != 0) return;
@@ -362,6 +370,13 @@ void UMagListenerComponent::RegisterListener()
                TEXT("[%s] Registered acoustic listener (ID=%u, primary=%s)."),
                GetOwner() ? *GetOwner()->GetName() : TEXT("Unknown"),
                ListenerID, bIsPrimaryListener ? TEXT("yes") : TEXT("no"));
+
+        // Notify the runtime module so that UMagSourceComponent queries against
+        // the correct listener ID rather than a hard-coded constant.
+        if (bIsPrimaryListener)
+        {
+            FMagnaundasoniRuntimeModule::SetPrimaryListenerID(ListenerID);
+        }
     }
     else
     {
@@ -374,6 +389,13 @@ void UMagListenerComponent::RegisterListener()
 void UMagListenerComponent::UnregisterListener()
 {
     if (!bRegistered) return;
+
+    // If we were the primary listener, clear the module's tracked ID.
+    if (bIsPrimaryListener &&
+        FMagnaundasoniRuntimeModule::GetPrimaryListenerID() == ListenerID)
+    {
+        FMagnaundasoniRuntimeModule::SetPrimaryListenerID(0);
+    }
 
     const FMagNativeBridge* Bridge = FMagnaundasoniRuntimeModule::GetBridge();
     MagEngine Engine = FMagnaundasoniRuntimeModule::GetNativeEngine();

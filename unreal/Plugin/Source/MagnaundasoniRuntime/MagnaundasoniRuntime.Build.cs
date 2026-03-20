@@ -39,8 +39,20 @@ public class MagnaundasoniRuntime : ModuleRules
         });
 
         // Native C header for type definitions (no static link – loaded dynamically).
+        // Prefer the plugin-local ThirdParty layout (used when the plugin is installed
+        // in an external UE project); fall back to the repo-relative native/include
+        // path so the module compiles during in-repo development.
+        string PluginIncludeDir = Path.Combine(ModuleDirectory, "..", "..", "ThirdParty", "Magnaundasoni", "include");
         string NativeDir = Path.Combine(ModuleDirectory, "..", "..", "..", "..", "native");
-        string IncludeDir = Path.Combine(NativeDir, "include");
-        PublicIncludePaths.Add(IncludeDir);
+        string RepoIncludeDir = Path.Combine(NativeDir, "include");
+
+        if (Directory.Exists(PluginIncludeDir))
+        {
+            PublicIncludePaths.Add(PluginIncludeDir);
+        }
+        else if (Directory.Exists(RepoIncludeDir))
+        {
+            PublicIncludePaths.Add(RepoIncludeDir);
+        }
     }
 }

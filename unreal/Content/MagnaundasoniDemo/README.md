@@ -59,9 +59,13 @@ built-in Python interpreter.
 
    The script will:
    - Create the four Blueprint classes listed above.
+   - Add the required Magnaundasoni components (source, listener, geometry) to each Blueprint.
    - Place default instances in the level.
-   - Wire up waypoint variables on BP_MagEnemy.
    - Save all assets.
+
+   > **Note:** Patrol waypoints and movement logic for BP_MagEnemy are **not**
+   > automated by the script. See the **Manual Blueprint recreation** section
+   > below to add patrol movement by hand.
 
 6. **Play the level** (`Alt+P`).  Walk the player pawn around the room and listen
    for acoustic changes as the enemy moves around the door.

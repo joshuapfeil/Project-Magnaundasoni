@@ -55,7 +55,7 @@ MyProject/
 ```
 
 1. Download the latest Magnaundasoni Unreal plugin from the
-   [Releases page](https://github.com/<org>/Project-Magnaundasoni/releases).
+   [Releases page](https://github.com/joshuapfeil/Project-Magnaundasoni/releases).
 2. Copy the `unreal/Plugin/` folder from the repo into your project's
    `Plugins/Magnaundasoni/` directory (see structure above).
 3. Place the compiled native library binaries in the `Binaries/<Platform>/`

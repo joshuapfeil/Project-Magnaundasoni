@@ -127,6 +127,11 @@ void UMagGeometryComponent::RegisterGeometry()
                TEXT("[%s] Registered acoustic geometry (ID=%u, verts=%u, tris=%u, mat=%u)."),
                GetOwner() ? *GetOwner()->GetName() : TEXT("Unknown"),
                GeometryID, Desc.vertexCount, Desc.indexCount / 3, MaterialID);
+
+        // Push the initial world transform so the native engine positions the
+        // geometry correctly from the very first simulation tick.  Vertices were
+        // registered in local space, so this is always required.
+        PushTransformUpdate();
     }
     else
     {
@@ -167,9 +172,11 @@ void UMagGeometryComponent::ResolveMaterial()
     if (!Bridge || !Engine) return;
 
     // Convert the FString preset name to ANSI for the C API call.
+    // FTCHARToUTF8 holds the converted buffer for the duration of this scope,
+    // so the pointer remains valid through both MaterialGetPreset and MaterialRegister.
     const FString PresetName = MaterialPreset.IsEmpty() ? TEXT("Concrete") : MaterialPreset;
-    // TCHAR_TO_ANSI uses a stack-allocated buffer valid for the lifetime of the expression.
-    const char* AnsiPresetName = TCHAR_TO_ANSI(*PresetName);
+    FTCHARToUTF8 AnsiConverter(*PresetName);
+    const char* AnsiPresetName = AnsiConverter.Get();
 
     if (Bridge->MaterialGetPreset && Bridge->MaterialRegister)
     {
@@ -222,22 +229,18 @@ bool UMagGeometryComponent::ExtractMeshData(TArray<float>& OutVertices,
     const int32 NumVerts = VBs.PositionVertexBuffer.GetNumVertices();
     if (NumVerts == 0) return false;
 
-    // World transform of the mesh component (scale baked in at registration time;
-    // subsequent updates use the transform-update path).
-    const FTransform WorldXform = MeshComp->GetComponentTransform();
-
     OutVertices.Reserve(NumVerts * 3);
     for (int32 i = 0; i < NumVerts; ++i)
     {
-        // GetVertexPosition returns local-space position.
-        const FVector3f LocalPos = VBs.PositionVertexBuffer.VertexPosition(i);
-        // Transform to world space (still in centimetres).
-        const FVector WorldPos = WorldXform.TransformPosition(
-            FVector(LocalPos.X, LocalPos.Y, LocalPos.Z));
-        // Convert to metres for native engine.
-        OutVertices.Add(static_cast<float>(WorldPos.X * kCmToM));
-        OutVertices.Add(static_cast<float>(WorldPos.Y * kCmToM));
-        OutVertices.Add(static_cast<float>(WorldPos.Z * kCmToM));
+        // Export vertices in local space (cm → m).
+        // The native engine applies the component world transform separately
+        // via mag_geometry_update_transform; baking world space here would
+        // double-apply the transform for dynamic geometry.
+        const FVector3f LocalPosCm = VBs.PositionVertexBuffer.VertexPosition(i);
+        const FVector3f LocalPosM  = LocalPosCm * kCmToM;
+        OutVertices.Add(LocalPosM.X);
+        OutVertices.Add(LocalPosM.Y);
+        OutVertices.Add(LocalPosM.Z);
     }
 
     // ---- Indices ----
@@ -283,24 +286,35 @@ void UMagGeometryComponent::PushTransformUpdate()
 
 void UMagGeometryComponent::ToNativeMatrix(const FTransform& Transform, float OutMatrix[16])
 {
-    // Build a standard 4x4 TRS matrix from the UE FTransform.
-    // Translations are converted from centimetres to metres.
-    // The matrix is laid out row-major: row0={Xx Xy Xz 0}, row1={Yx Yy Yz 0},
-    // row2={Zx Zy Zz 0}, row3={Tx Ty Tz 1} (translation in the last row).
+    // The native engine reads the matrix with Mat4x4::fromColumnMajor, which
+    // expects the flat 16-element array in column-major order:
+    //   OutMatrix[Col * 4 + Row] = m[Row][Col]
+    //
+    // The native transformPoint convention (column-vector multiplication) requires
+    // translation to be in column 3 (m[0..2][3]).
+    //
+    // UE's FMatrix uses row-vector convention with translation in row 3
+    // (M.M[3][0..2]).  To produce the equivalent column-vector matrix we need
+    // the transpose of the UE matrix, which moves translation into column 3.
+    //
+    // Combined: OutMatrix[Col * 4 + Row] = M.M[Col][Row]   (transpose via index swap)
+    //
+    // After transposing, translation lives at indices 12, 13, 14 (Col=3, Row=0-2),
+    // and we scale those from centimetres to metres.
+
     const FMatrix M = Transform.ToMatrixWithScale();
 
-    // Columns of M (UE FMatrix is column-major internally, but accessible as M[row][col]).
-    // We emit row-major so the native engine can treat each row4 as a basis vector + translation.
     for (int32 Row = 0; Row < 4; ++Row)
     {
         for (int32 Col = 0; Col < 4; ++Col)
         {
-            OutMatrix[Row * 4 + Col] = static_cast<float>(M.M[Row][Col]);
+            OutMatrix[Col * 4 + Row] = static_cast<float>(M.M[Col][Row]);
         }
     }
 
-    // Scale translation components (row 3, cols 0-2) from cm to metres.
-    OutMatrix[3 * 4 + 0] *= kCmToM;
-    OutMatrix[3 * 4 + 1] *= kCmToM;
-    OutMatrix[3 * 4 + 2] *= kCmToM;
+    // Scale translation components (col 3, rows 0-2) from cm to metres.
+    // Flat indices: Col=3 → base = 3*4 = 12; rows 0, 1, 2 → indices 12, 13, 14.
+    OutMatrix[12] *= kCmToM;  // Tx (col=3, row=0)
+    OutMatrix[13] *= kCmToM;  // Ty (col=3, row=1)
+    OutMatrix[14] *= kCmToM;  // Tz (col=3, row=2)
 }

@@ -51,6 +51,18 @@ public:
      */
     static const FMagNativeBridge* GetBridge();
 
+    /**
+     * Called by UMagListenerComponent when a primary listener registers or
+     * unregisters, so that UMagSourceComponent can query results against the
+     * correct listener ID rather than a hard-coded constant.
+     *
+     * @param ListenerID  The ID returned by mag_listener_register, or 0 to clear.
+     */
+    static void SetPrimaryListenerID(uint32 ListenerID);
+
+    /** Returns the current primary listener ID (0 if none is registered). */
+    static uint32 GetPrimaryListenerID();
+
 private:
     /** Called once per world tick after all actors have ticked. */
     void OnWorldPostActorTick(UWorld* World, ELevelTick TickType, float DeltaSeconds);
