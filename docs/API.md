@@ -1,10 +1,10 @@
 # Magnaundasoni – API Reference
 
 > **Version**: 1.0
-> **Header**: `magn_api.h`
+> **Header**: `Magnaundasoni.h`
 
 This is the primary API reference for the Magnaundasoni real-time acoustics
-runtime.  For implementation details and architecture context, see
+runtime.  For early design notes and architecture context, see
 [`docs/design/api.md`](design/api.md).
 
 ---
@@ -12,64 +12,69 @@ runtime.  For implementation details and architecture context, see
 ## Quick Start
 
 ```c
-#include "magn_api.h"
+#include "Magnaundasoni.h"
 
 int main(void)
 {
-    /* 1. Initialize with defaults */
-    MagnResult result = magn_init(NULL);
-    if (result != MAGN_OK) return 1;
+    /* 1. Create engine with sensible defaults */
+    MagEngineConfig cfg;
+    mag_engine_config_defaults(&cfg);
+    /* Override only what you need: */
+    cfg.quality    = MAG_QUALITY_HIGH;
+    cfg.maxSources = 32;
 
-    /* 2. Register a material */
-    magn_set_material_from_preset(1, "Wood");
+    MagEngine engine = NULL;
+    MagStatus status = mag_engine_create(&cfg, &engine);
+    if (status != MAG_OK) return 1;
+
+    /* 2. Register a material from a built-in preset */
+    MagMaterialDesc matDesc;
+    mag_material_get_preset("Wood", &matDesc);
+    MagMaterialID matID = 0;
+    mag_material_register(engine, &matDesc, &matID);
 
     /* 3. Register geometry (simplified example) */
-    float verts[] = { /* ... triangle vertices ... */ };
+    float verts[] = { /* ... x,y,z interleaved triangle vertices ... */ };
     uint32_t indices[] = { /* ... triangle indices ... */ };
-    uint32_t matIDs[] = { /* ... per-triangle material IDs ... */ };
-    MagnGeometryDesc geo = {
-        .structSize = sizeof(MagnGeometryDesc),
-        .vertices = verts,
-        .vertexCount = 8,
-        .indices = indices,
-        .indexCount = 12,
-        .materialIDs = matIDs,
-        .bounds = { .min = {0,0,0}, .max = {10,5,10} },
-        .edgeCache = NULL
-    };
-    magn_register_geometry(1, &geo);
+    MagGeometryDesc geo = {0};
+    geo.vertices     = verts;
+    geo.vertexCount  = 8;
+    geo.indices      = indices;
+    geo.indexCount    = 12;
+    geo.materialID   = matID;
+    geo.dynamicFlag  = 0;  /* static */
+
+    MagGeometryID geoID = 0;
+    mag_geometry_register(engine, &geo, &geoID);
 
     /* 4. Register source and listener */
-    MagnSourceDesc src = {
-        .structSize = sizeof(MagnSourceDesc),
-        .position = {2.0f, 1.5f, 3.0f},
-        .forward = {1, 0, 0},
-        .up = {0, 1, 0},
-        .directivityPattern = 0,
-        .priority = 1.0f,
-        .active = 1
-    };
-    magn_register_source(1, &src);
+    MagSourceDesc src = {0};
+    src.position[0] = 2.0f; src.position[1] = 1.5f; src.position[2] = 3.0f;
+    src.direction[0] = 1.0f;
+    src.radius     = 0.1f;
+    src.importance = 2;  /* high */
 
-    MagnListenerDesc lis = {
-        .structSize = sizeof(MagnListenerDesc),
-        .position = {8.0f, 1.5f, 3.0f},
-        .forward = {-1, 0, 0},
-        .up = {0, 1, 0}
-    };
-    magn_register_listener(1, &lis);
+    MagSourceID srcID = 0;
+    mag_source_register(engine, &src, &srcID);
+
+    MagListenerDesc lis = {0};
+    lis.position[0] = 8.0f; lis.position[1] = 1.5f; lis.position[2] = 3.0f;
+    lis.forward[0]  = -1.0f;
+    lis.up[1]       = 1.0f;
+
+    MagListenerID lisID = 0;
+    mag_listener_register(engine, &lis, &lisID);
 
     /* 5. Run simulation */
-    magn_tick(0.016f);
+    mag_update(engine, 0.016f);
 
     /* 6. Query results */
-    const MagnAcousticState* state = NULL;
-    magn_get_acoustic_state(1, &state);
-
-    /* Use state->directComponents, state->earlyReflections, etc. */
+    MagAcousticResult result = {0};
+    mag_get_acoustic_result(engine, srcID, lisID, &result);
+    /* Use result.direct, result.reflections, result.lateField, etc. */
 
     /* 7. Shut down */
-    magn_shutdown();
+    mag_engine_destroy(engine);
     return 0;
 }
 ```
@@ -82,78 +87,61 @@ int main(void)
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `magn_init` | `MagnResult magn_init(const MagnInitConfig* config)` | Initialize the runtime. Pass `NULL` for defaults. |
-| `magn_shutdown` | `MagnResult magn_shutdown(void)` | Shut down and release all resources. |
+| `mag_engine_config_defaults` | `MagStatus mag_engine_config_defaults(MagEngineConfig* outConfig)` | Populate a config with sensible defaults. Call first, then override only the fields you need. |
+| `mag_engine_create` | `MagStatus mag_engine_create(const MagEngineConfig* config, MagEngine* outEngine)` | Create an engine instance. |
+| `mag_engine_destroy` | `MagStatus mag_engine_destroy(MagEngine engine)` | Destroy the engine and release all resources. |
+
+### Material Management
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `mag_material_register` | `MagStatus mag_material_register(MagEngine engine, const MagMaterialDesc* desc, MagMaterialID* outID)` | Register a material definition. |
+| `mag_material_get_preset` | `MagStatus mag_material_get_preset(const char* presetName, MagMaterialDesc* outDesc)` | Retrieve a built-in material preset (e.g., "Wood", "Metal"). |
 
 ### Scene Management – Geometry
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `magn_register_geometry` | `MagnResult magn_register_geometry(uint64_t chunkID, const MagnGeometryDesc* desc)` | Register a static geometry chunk. |
-| `magn_unregister_geometry` | `MagnResult magn_unregister_geometry(uint64_t chunkID)` | Remove a geometry chunk. |
-| `magn_register_dynamic_object` | `MagnResult magn_register_dynamic_object(uint32_t objectID, const MagnDynamicObjectDesc* desc)` | Register a dynamic object with proxy geometry. |
-| `magn_update_dynamic_object` | `MagnResult magn_update_dynamic_object(uint32_t objectID, const MagnTransform* transform)` | Update a dynamic object's transform. |
-| `magn_deregister_dynamic_object` | `MagnResult magn_deregister_dynamic_object(uint32_t objectID)` | Remove a dynamic object. |
-
-### Scene Management – Materials
-
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `magn_set_material` | `MagnResult magn_set_material(uint32_t materialID, const MagnMaterial* material)` | Register or update a material definition. |
-| `magn_set_material_from_preset` | `MagnResult magn_set_material_from_preset(uint32_t materialID, const char* presetTag)` | Set a material from a built-in preset (e.g., "Wood", "Metal"). |
-| `magn_get_material` | `MagnResult magn_get_material(uint32_t materialID, MagnMaterial* outMaterial)` | Retrieve a material definition. |
+| `mag_geometry_register` | `MagStatus mag_geometry_register(MagEngine engine, const MagGeometryDesc* desc, MagGeometryID* outID)` | Register a geometry chunk. |
+| `mag_geometry_unregister` | `MagStatus mag_geometry_unregister(MagEngine engine, MagGeometryID id)` | Remove a geometry chunk. |
+| `mag_geometry_update_transform` | `MagStatus mag_geometry_update_transform(MagEngine engine, MagGeometryID id, const float* transform4x4)` | Update a geometry's world transform (16 floats, column-major). |
 
 ### Scene Management – Sources & Listeners
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `magn_register_source` | `MagnResult magn_register_source(uint32_t sourceID, const MagnSourceDesc* desc)` | Register an acoustic source. |
-| `magn_update_source` | `MagnResult magn_update_source(uint32_t sourceID, const float pos[3], const float fwd[3], const float up[3])` | Update source position/orientation. |
-| `magn_set_source_active` | `MagnResult magn_set_source_active(uint32_t sourceID, uint8_t active)` | Enable or disable a source. |
-| `magn_deregister_source` | `MagnResult magn_deregister_source(uint32_t sourceID)` | Remove a source. |
-| `magn_register_listener` | `MagnResult magn_register_listener(uint32_t listenerID, const MagnListenerDesc* desc)` | Register a listener. |
-| `magn_update_listener` | `MagnResult magn_update_listener(uint32_t listenerID, const float pos[3], const float fwd[3], const float up[3])` | Update listener position/orientation. |
-| `magn_deregister_listener` | `MagnResult magn_deregister_listener(uint32_t listenerID)` | Remove a listener. |
+| `mag_source_register` | `MagStatus mag_source_register(MagEngine engine, const MagSourceDesc* desc, MagSourceID* outID)` | Register an acoustic source. |
+| `mag_source_unregister` | `MagStatus mag_source_unregister(MagEngine engine, MagSourceID id)` | Remove a source. |
+| `mag_source_update` | `MagStatus mag_source_update(MagEngine engine, MagSourceID id, const MagSourceDesc* desc)` | Update source position/orientation. |
+| `mag_listener_register` | `MagStatus mag_listener_register(MagEngine engine, const MagListenerDesc* desc, MagListenerID* outID)` | Register a listener. |
+| `mag_listener_unregister` | `MagStatus mag_listener_unregister(MagEngine engine, MagListenerID id)` | Remove a listener. |
+| `mag_listener_update` | `MagStatus mag_listener_update(MagEngine engine, MagListenerID id, const MagListenerDesc* desc)` | Update listener position/orientation. |
 
 ### Simulation
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `magn_tick` | `MagnResult magn_tick(float deltaTime)` | Advance simulation by one frame. |
+| `mag_update` | `MagStatus mag_update(MagEngine engine, float deltaTime)` | Advance simulation by one frame. |
 
 ### Query Acoustic State
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `magn_get_acoustic_state` | `MagnResult magn_get_acoustic_state(uint32_t listenerID, const MagnAcousticState** outState)` | Get full acoustic state for a listener. Lock-free, audio-thread safe. |
-| `magn_get_direct` | `MagnResult magn_get_direct(uint32_t listenerID, uint32_t sourceID, const MagnDirectComponent** out)` | Get direct component for a specific source. |
-| `magn_get_reflections` | `MagnResult magn_get_reflections(uint32_t listenerID, uint32_t sourceID, const MagnEarlyReflections** out)` | Get early reflections for a specific source. |
-| `magn_get_diffraction` | `MagnResult magn_get_diffraction(uint32_t listenerID, uint32_t sourceID, const MagnDiffraction** out)` | Get diffraction taps for a specific source. |
-| `magn_get_late_field` | `MagnResult magn_get_late_field(uint32_t listenerID, const MagnLateField** out)` | Get the late reverberant field descriptor. |
-
-### Render Output
-
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `magn_get_submix` | `MagnResult magn_get_submix(uint32_t listenerID, MagnSubmixFormat fmt, float* outBuf, uint32_t frameCount)` | Get spatialized audio submix (built-in renderer). |
-| `magn_get_source_parameters` | `MagnResult magn_get_source_parameters(uint32_t listenerID, uint32_t sourceID, MagnSourceParameterSet* out)` | Get adapter-friendly parameters (gain, filter, panning). |
+| `mag_get_acoustic_result` | `MagStatus mag_get_acoustic_result(MagEngine engine, MagSourceID sourceID, MagListenerID listenerID, MagAcousticResult* outResult)` | Get full acoustic result for a source-listener pair. |
+| `mag_get_global_state` | `MagStatus mag_get_global_state(MagEngine engine, MagGlobalState* outState)` | Get per-frame engine statistics. |
 
 ### Quality Settings
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `magn_set_quality` | `MagnResult magn_set_quality(MagnQualityLevel level)` | Set quality preset (Low, Medium, High, Ultra). |
-| `magn_get_quality` | `MagnResult magn_get_quality(MagnQualityLevel* outLevel)` | Query current quality level. |
-| `magn_set_quality_settings` | `MagnResult magn_set_quality_settings(const MagnQualitySettings* settings)` | Fine-tune individual quality parameters. |
-| `magn_get_quality_settings` | `MagnResult magn_get_quality_settings(MagnQualitySettings* out)` | Query current quality settings. |
+| `mag_set_quality` | `MagStatus mag_set_quality(MagEngine engine, MagQualityLevel level)` | Set quality preset (Low, Medium, High, Ultra). |
 
 ### Debug & Profiling
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `magn_debug_get_stats` | `MagnResult magn_debug_get_stats(MagnStats* outStats)` | Get per-frame performance statistics. |
-| `magn_debug_visualize` | `MagnResult magn_debug_visualize(MagnDebugFlags flags, MagnDebugDrawCallback cb, void* ud)` | Request debug visualization data. |
-| `magn_debug_set_log_level` | `MagnResult magn_debug_set_log_level(MagnLogLevel level)` | Set runtime log verbosity. |
+| `mag_debug_get_ray_count` | `MagStatus mag_debug_get_ray_count(MagEngine engine, uint32_t* outCount)` | Get the number of rays cast in the last tick. |
+| `mag_debug_get_active_edges` | `MagStatus mag_debug_get_active_edges(MagEngine engine, uint32_t* outCount)` | Get the number of active diffraction edges. |
 
 ---
 
@@ -161,16 +149,11 @@ int main(void)
 
 | Code | Name | Description |
 |------|------|-------------|
-| 0    | `MAGN_OK` | Success |
-| -1   | `MAGN_ERROR_INVALID_ARG` | A parameter is null or out of range |
-| -2   | `MAGN_ERROR_NOT_INITIALIZED` | `magn_init()` has not been called |
-| -3   | `MAGN_ERROR_OUT_OF_MEMORY` | Allocation failed |
-| -4   | `MAGN_ERROR_BACKEND_FAILURE` | Ray backend initialization or dispatch failed |
-| -5   | `MAGN_ERROR_VERSION_MISMATCH` | Header/library version mismatch |
-| -6   | `MAGN_ERROR_CHUNK_NOT_FOUND` | Chunk ID not registered |
-| -7   | `MAGN_ERROR_ID_NOT_FOUND` | Source/listener/material ID not found |
-| -8   | `MAGN_ERROR_LIMIT_EXCEEDED` | Maximum count exceeded (sources, chunks, etc.) |
-| -99  | `MAGN_ERROR_UNKNOWN` | Unclassified internal error |
+| 0    | `MAG_OK` | Success |
+| -1   | `MAG_ERROR` | General error |
+| -2   | `MAG_INVALID_PARAM` | A parameter is null or out of range |
+| -3   | `MAG_OUT_OF_MEMORY` | Allocation failed |
+| -4   | `MAG_NOT_INITIALIZED` | Engine not initialized |
 
 ---
 
@@ -178,23 +161,25 @@ int main(void)
 
 | Function Group | Main Thread | Audio Thread | Worker Thread |
 |----------------|:-----------:|:------------:|:-------------:|
-| `magn_init` / `magn_shutdown` | ✅ | ❌ | ❌ |
-| `magn_register_*` / `magn_update_*` | ✅ | ❌ | ❌ |
-| `magn_tick` | ✅ | ❌ | ❌ |
-| `magn_get_acoustic_state` | ✅ | ✅ | ❌ |
-| `magn_get_direct` / `reflections` / etc. | ✅ | ✅ | ❌ |
-| `magn_get_submix` | ✅ | ✅ | ❌ |
-| `magn_debug_*` | ✅ | ❌ | ❌ |
+| `mag_engine_create` / `mag_engine_destroy` | ✅ | ❌ | ❌ |
+| `mag_*_register` / `mag_*_update` | ✅ | ❌ | ❌ |
+| `mag_update` | ✅ | ❌ | ❌ |
+| `mag_get_acoustic_result` | ✅ | ❌ | ❌ |
+| `mag_get_global_state` | ✅ | ❌ | ❌ |
+| `mag_debug_*` | ✅ | ❌ | ❌ |
 
-All query functions (`magn_get_*`) are **lock-free** and safe to call from the
-audio thread at any time.
+All query functions (`mag_get_*`) are thread-safe when used from the main
+thread, but are **not guaranteed to be lock-free or real-time safe**. In
+particular, `mag_get_acoustic_result` and `mag_get_global_state` may take
+internal locks and **must not** be called from the audio callback.
 
 ---
 
 ## Data Types Reference
 
-For complete struct definitions, see [`docs/design/api.md`](design/api.md),
-sections 2–11.
+For complete struct definitions, see the public header
+[`native/include/Magnaundasoni.h`](../native/include/Magnaundasoni.h) and the
+design notes in [`docs/design/api.md`](design/api.md).
 
 ---
 

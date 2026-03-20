@@ -80,6 +80,36 @@ ctest --test-dir build/debug --output-on-failure
 
 For Windows and additional CMake options see **[BUILD.md](BUILD.md)**.
 
+### Minimal C Usage
+
+```c
+#include "Magnaundasoni.h"
+
+MagEngineConfig cfg;
+mag_engine_config_defaults(&cfg);   /* sensible defaults – override what you need */
+cfg.quality = MAG_QUALITY_HIGH;
+
+MagEngine engine = NULL;
+mag_engine_create(&cfg, &engine);
+
+/* … register geometry, sources, listener … */
+mag_update(engine, 0.016f);
+
+MagAcousticResult result = {0};
+/* srcID and lisID are obtained when you register your source and listener */
+/* mag_get_acoustic_result(engine, srcID, lisID, &result); */
+
+mag_engine_destroy(engine);
+```
+
+### Engine-Specific Integration
+
+| Engine | Guide |
+|--------|-------|
+| **Unity** | [docs/Integration-Unity.md](docs/Integration-Unity.md) – Add via UPM, drop components, press Play |
+| **Unreal** | [docs/Integration-Unreal.md](docs/Integration-Unreal.md) – Copy plugin, add Actor Components, hit Alt+P |
+| **Custom / C** | [docs/API.md](docs/API.md) – Single-header C ABI; link `magnaundasoni` and go |
+
 ### Key Documentation
 
 | Document | Description |

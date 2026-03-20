@@ -1,11 +1,17 @@
-# Magnaundasoni – C ABI Reference
+# Magnaundasoni – C ABI Design Specification
 
-> **Header**: `magn_api.h`
+> **Note**: This document is an early **design specification**.  The
+> implemented public header is
+> [`native/include/Magnaundasoni.h`](../../native/include/Magnaundasoni.h),
+> which uses the `mag_` / `Mag` / `MAG_` naming prefix.
+> For the up-to-date function reference that matches the implementation, see
+> [`docs/API.md`](../API.md).
+>
+> **Header**: `Magnaundasoni.h`
 > **ABI Version**: 1
 > **Calling Convention**: `__cdecl` (Windows), default (POSIX)
-> **Namespace prefix**: `magn_` (functions), `Magn` (types), `MAGN_` (constants)
 
-All functions are `extern "C"` and exported with `MAGN_API` visibility.
+All functions are `extern "C"` and exported with `MAG_API` visibility.
 
 ---
 

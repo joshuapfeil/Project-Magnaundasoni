@@ -188,6 +188,29 @@ typedef struct {
 } MagGlobalState;
 
 /* ------------------------------------------------------------------ */
+/* Default configuration                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Populate a MagEngineConfig with sensible defaults.
+ *
+ * Developers can call this first and then override only the fields they
+ * care about, avoiding the need to manually initialise every member.
+ *
+ * Defaults:
+ *   quality            = MAG_QUALITY_MEDIUM
+ *   preferredBackend   = MAG_BACKEND_AUTO
+ *   maxSources         = 64
+ *   maxReflectionOrder = 2
+ *   maxDiffractionDepth= 2
+ *   raysPerSource      = 64
+ *   threadCount        = 0  (auto-detect)
+ *   worldChunkSize     = 50.0
+ *   effectiveBandCount = 8
+ */
+MAG_API MagStatus mag_engine_config_defaults(MagEngineConfig* outConfig);
+
+/* ------------------------------------------------------------------ */
 /* Engine lifecycle                                                    */
 /* ------------------------------------------------------------------ */
 MAG_API MagStatus mag_engine_create(const MagEngineConfig* config,
