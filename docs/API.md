@@ -164,12 +164,14 @@ int main(void)
 | `mag_engine_create` / `mag_engine_destroy` | ✅ | ❌ | ❌ |
 | `mag_*_register` / `mag_*_update` | ✅ | ❌ | ❌ |
 | `mag_update` | ✅ | ❌ | ❌ |
-| `mag_get_acoustic_result` | ✅ | ✅ | ❌ |
-| `mag_get_global_state` | ✅ | ✅ | ❌ |
+| `mag_get_acoustic_result` | ✅ | ❌ | ❌ |
+| `mag_get_global_state` | ✅ | ❌ | ❌ |
 | `mag_debug_*` | ✅ | ❌ | ❌ |
 
-All query functions (`mag_get_*`) are **lock-free** and safe to call from the
-audio thread at any time.
+All query functions (`mag_get_*`) are thread-safe when used from the main
+thread, but are **not guaranteed to be lock-free or real-time safe**. In
+particular, `mag_get_acoustic_result` and `mag_get_global_state` may take
+internal locks and **must not** be called from the audio callback.
 
 ---
 

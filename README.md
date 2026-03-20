@@ -96,7 +96,8 @@ mag_engine_create(&cfg, &engine);
 mag_update(engine, 0.016f);
 
 MagAcousticResult result = {0};
-mag_get_acoustic_result(engine, srcID, lisID, &result);
+/* srcID and lisID are obtained when you register your source and listener */
+/* mag_get_acoustic_result(engine, srcID, lisID, &result); */
 
 mag_engine_destroy(engine);
 ```

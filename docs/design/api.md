@@ -11,7 +11,7 @@
 > **ABI Version**: 1
 > **Calling Convention**: `__cdecl` (Windows), default (POSIX)
 
-All functions are `extern "C"` and exported with `MAGN_API` visibility.
+All functions are `extern "C"` and exported with `MAG_API` visibility.
 
 ---
 
