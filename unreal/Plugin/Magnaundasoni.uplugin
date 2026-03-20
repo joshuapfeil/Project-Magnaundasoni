@@ -20,6 +20,12 @@
             "Type": "Runtime",
             "LoadingPhase": "Default",
             "WhitelistPlatforms": ["Win64", "Linux", "Mac"]
+        },
+        {
+            "Name": "MagnaundasoniRuntime",
+            "Type": "Runtime",
+            "LoadingPhase": "Default",
+            "WhitelistPlatforms": ["Win64", "Linux", "Mac"]
         }
     ]
 }
