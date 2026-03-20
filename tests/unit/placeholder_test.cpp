@@ -95,6 +95,46 @@ TEST_CASE("Engine destroy returns error for null engine", "[engine][lifecycle]")
 }
 
 // ---------------------------------------------------------------------------
+// Default configuration helper
+// ---------------------------------------------------------------------------
+
+TEST_CASE("mag_engine_config_defaults returns error for null pointer", "[engine][config]") {
+    REQUIRE(mag_engine_config_defaults(nullptr) != MAG_OK);
+}
+
+TEST_CASE("mag_engine_config_defaults populates sensible defaults", "[engine][config]") {
+    MagEngineConfig cfg{};
+    MagStatus status = mag_engine_config_defaults(&cfg);
+
+    REQUIRE(status == MAG_OK);
+    REQUIRE(cfg.quality == MAG_QUALITY_MEDIUM);
+    REQUIRE(cfg.preferredBackend == MAG_BACKEND_AUTO);
+    REQUIRE(cfg.maxSources > 0);
+    REQUIRE(cfg.maxReflectionOrder > 0);
+    REQUIRE(cfg.maxDiffractionDepth > 0);
+    REQUIRE(cfg.raysPerSource > 0);
+    REQUIRE(cfg.worldChunkSize > 0.0f);
+    REQUIRE(cfg.effectiveBandCount == 8);
+}
+
+TEST_CASE("Engine created from defaults works end-to-end", "[engine][config]") {
+    MagEngineConfig cfg{};
+    REQUIRE(mag_engine_config_defaults(&cfg) == MAG_OK);
+
+    MagEngine engine = nullptr;
+    REQUIRE(mag_engine_create(&cfg, &engine) == MAG_OK);
+    REQUIRE(engine != nullptr);
+
+    REQUIRE(mag_update(engine, 0.016f) == MAG_OK);
+
+    MagGlobalState state{};
+    REQUIRE(mag_get_global_state(engine, &state) == MAG_OK);
+    REQUIRE(state.activeSourceCount == 0);
+
+    mag_engine_destroy(engine);
+}
+
+// ---------------------------------------------------------------------------
 // Parameter validation
 // ---------------------------------------------------------------------------
 

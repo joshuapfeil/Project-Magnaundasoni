@@ -94,6 +94,25 @@ static void rebuildBVH(MagEngine_T* e) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Default configuration                                              */
+/* ------------------------------------------------------------------ */
+MagStatus mag_engine_config_defaults(MagEngineConfig* outConfig) {
+    if (!outConfig) return MAG_INVALID_PARAM;
+
+    outConfig->quality             = MAG_QUALITY_MEDIUM;
+    outConfig->preferredBackend    = MAG_BACKEND_AUTO;
+    outConfig->maxSources          = 64;
+    outConfig->maxReflectionOrder  = 2;
+    outConfig->maxDiffractionDepth = 2;
+    outConfig->raysPerSource       = 64;
+    outConfig->threadCount         = 0;  // auto-detect
+    outConfig->worldChunkSize      = 50.0f;
+    outConfig->effectiveBandCount  = 8;
+
+    return MAG_OK;
+}
+
+/* ------------------------------------------------------------------ */
 /* Engine lifecycle                                                    */
 /* ------------------------------------------------------------------ */
 MagStatus mag_engine_create(const MagEngineConfig* config, MagEngine* outEngine) {

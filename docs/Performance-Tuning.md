@@ -43,13 +43,11 @@ all simulation parameters as a coherent set.
 
 ```c
 /* C ABI */
-magn_set_quality(MAGN_QUALITY_HIGH);
-
-/* Or per-parameter override */
-MagnQualitySettings s;
-magn_get_quality_settings(&s);
-s.raysPerSource = 96;  /* Custom value between Medium and High */
-magn_set_quality_settings(&s);
+MagEngineConfig cfg;
+mag_engine_config_defaults(&cfg);
+MagEngine engine = NULL;
+mag_engine_create(&cfg, &engine);
+mag_set_quality(engine, MAG_QUALITY_HIGH);
 ```
 
 ### When to Use Each Tier
@@ -124,12 +122,13 @@ totalRays = raysPerSource × activeSourceCount + lateFieldGlobalRays
 ### Configuring Memory
 
 ```c
-MagnInitConfig config = {0};
-config.structSize = sizeof(MagnInitConfig);
-config.framePoolSizeMB = 32;  /* Increase for large scenes */
-config.maxSources = 128;
-config.maxChunks = 1024;       /* Large open world */
-magn_init(&config);
+MagEngineConfig cfg;
+mag_engine_config_defaults(&cfg);
+cfg.maxSources     = 128;
+cfg.worldChunkSize = 64.0f;  /* Increase for large scenes */
+
+MagEngine engine = NULL;
+mag_engine_create(&cfg, &engine);
 ```
 
 ### Custom Allocator
@@ -272,74 +271,73 @@ Diffraction is the most variable cost center.  Key controls:
 ### Windows PC (High-End)
 
 ```c
-MagnInitConfig config = {0};
-config.structSize = sizeof(MagnInitConfig);
-config.forceBackend = MAGN_BACKEND_AUTO;  /* Will select DXR if available */
-config.workerThreadCount = 0;             /* Auto-detect */
-config.maxSources = 256;
-config.framePoolSizeMB = 32;
-magn_init(&config);
-magn_set_quality(MAGN_QUALITY_HIGH);
+MagEngineConfig cfg;
+mag_engine_config_defaults(&cfg);
+cfg.preferredBackend   = MAG_BACKEND_AUTO;  /* Will select DXR if available */
+cfg.threadCount        = 0;                 /* Auto-detect */
+cfg.maxSources         = 256;
+
+MagEngine engine = NULL;
+mag_engine_create(&cfg, &engine);
+mag_set_quality(engine, MAG_QUALITY_HIGH);
 ```
 
 ### Console (Xbox Series X / PS5)
 
 ```c
-config.workerThreadCount = 4;
-config.maxSources = 128;
-config.framePoolSizeMB = 16;
-magn_set_quality(MAGN_QUALITY_MEDIUM);
+MagEngineConfig cfg;
+mag_engine_config_defaults(&cfg);
+cfg.threadCount = 4;
+cfg.maxSources  = 128;
 
-/* Fine-tune for console budgets */
-MagnQualitySettings s;
-magn_get_quality_settings(&s);
-s.raysPerSource = 96;
-s.maxReflectionOrder = 2;
-s.maxDiffractionDepth = 1;
-magn_set_quality_settings(&s);
+MagEngine engine = NULL;
+mag_engine_create(&cfg, &engine);
+mag_set_quality(engine, MAG_QUALITY_MEDIUM);
 ```
 
 ### Nintendo Switch
 
 ```c
-config.forceBackend = MAGN_BACKEND_SOFTWARE;
-config.workerThreadCount = 1;
-config.maxSources = 32;
-config.framePoolSizeMB = 4;
-magn_set_quality(MAGN_QUALITY_LOW);
+MagEngineConfig cfg;
+mag_engine_config_defaults(&cfg);
+cfg.preferredBackend = MAG_BACKEND_SOFTWARE_BVH;
+cfg.threadCount      = 1;
+cfg.maxSources       = 32;
+
+MagEngine engine = NULL;
+mag_engine_create(&cfg, &engine);
+mag_set_quality(engine, MAG_QUALITY_LOW);
 ```
 
 ### Mobile (Android / iOS)
 
 ```c
-config.forceBackend = MAGN_BACKEND_SOFTWARE;
-config.workerThreadCount = 2;
-config.maxSources = 16;
-config.framePoolSizeMB = 4;
-magn_set_quality(MAGN_QUALITY_LOW);
+MagEngineConfig cfg;
+mag_engine_config_defaults(&cfg);
+cfg.preferredBackend = MAG_BACKEND_SOFTWARE_BVH;
+cfg.threadCount      = 2;
+cfg.maxSources       = 16;
+cfg.raysPerSource    = 8;
 
-MagnQualitySettings s;
-magn_get_quality_settings(&s);
-s.raysPerSource = 8;
-s.maxActiveSources = 4;
-magn_set_quality_settings(&s);
+MagEngine engine = NULL;
+mag_engine_create(&cfg, &engine);
+mag_set_quality(engine, MAG_QUALITY_LOW);
 ```
 
 ### VR (Quest, PCVR)
 
 ```c
 /* VR requires low latency; prioritize tick time */
-config.workerThreadCount = 0;  /* Max available */
-config.maxSources = 32;
-config.framePoolSizeMB = 16;
+MagEngineConfig cfg;
+mag_engine_config_defaults(&cfg);
+cfg.threadCount           = 0;   /* Max available */
+cfg.maxSources            = 32;
+cfg.raysPerSource         = 128;
+cfg.maxReflectionOrder    = 2;
+cfg.maxDiffractionDepth   = 1;
 
-MagnQualitySettings s;
-s.raysPerSource = 128;
-s.maxReflectionOrder = 2;
-s.maxDiffractionDepth = 1;
-s.maxActiveSources = 16;
-s.temporalSmoothingAlpha = 0.1f;  /* Less smoothing = lower latency */
-magn_set_quality_settings(&s);
+MagEngine engine = NULL;
+mag_engine_create(&cfg, &engine);
 ```
 
 ---
@@ -349,20 +347,21 @@ magn_set_quality_settings(&s);
 ### Built-in Statistics
 
 ```c
-MagnStats stats;
-magn_debug_get_stats(&stats);
+MagGlobalState state;
+mag_get_global_state(engine, &state);
 
-printf("Tick: %.2f ms\n", stats.tickTimeMs);
-printf("Ray trace: %.2f ms\n", stats.rayTraceTimeMs);
-printf("BVH build: %.2f ms\n", stats.bvhBuildTimeMs);
-printf("Rays cast: %u\n", stats.totalRaysCast);
-printf("Active sources: %u\n", stats.activeSources);
-printf("Chunks: %u (D:%u R:%u S:%u)\n",
-    stats.activeChunks, stats.detailedChunks,
-    stats.reducedChunks, stats.summarizedChunks);
-printf("Frame pool: %llu / %u MB\n",
-    stats.framePoolUsedBytes, framePoolSizeMB);
-printf("Backend: %d\n", stats.backendUsed);
+uint32_t rayCount = 0;
+mag_debug_get_ray_count(engine, &rayCount);
+
+uint32_t edgeCount = 0;
+mag_debug_get_active_edges(engine, &edgeCount);
+
+printf("Active quality: %d\n", state.activeQuality);
+printf("Backend used: %d\n", state.backendUsed);
+printf("Active sources: %u\n", state.activeSourceCount);
+printf("CPU time: %.2f ms\n", state.cpuTimeMs);
+printf("Rays cast: %u\n", rayCount);
+printf("Active edges: %u\n", edgeCount);
 ```
 
 ### Key Metrics to Monitor
