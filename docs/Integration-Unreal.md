@@ -160,9 +160,16 @@ void AMyGameMode::BeginPlay()
 
 ## Scene Setup
 
-### Automatic Geometry Registration via Actor Component
+### Automatic Geometry Registration
 
-Add the `UMagnGeometryComponent` to any actor with static mesh components.
+At runtime, the Unreal integration now auto-discovers actors that have
+`UStaticMeshComponent`s and do not already have a `UMagGeometryComponent`
+override. The plugin attaches a geometry component automatically, registers the
+mesh with default settings, and keeps doing that for newly spawned or streamed
+actors without re-scanning the full world every frame.
+
+Use an explicit `UMagGeometryComponent` when you need non-default material or
+dynamic-importance settings.
 
 ```cpp
 // In your actor's constructor or Blueprint
