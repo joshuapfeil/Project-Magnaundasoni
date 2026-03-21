@@ -7,12 +7,14 @@
 
 #include "Components/StaticMeshComponent.h"
 #include "HAL/PlatformProcess.h"
+#include "Engine/StaticMesh.h"
 #include "Misc/Paths.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Actor.h"
 #include "Interfaces/IPluginManager.h"
+#include "StaticMeshResources.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogMagnaundasoniRuntime, Log, All);
 
@@ -28,26 +30,39 @@ static TMap<TWeakObjectPtr<UWorld>, FDelegateHandle> GActorSpawnHandles;
 
 namespace
 {
+UStaticMeshComponent* FindUsableStaticMeshComponent(const AActor* Actor)
+{
+    if (!Actor) return nullptr;
+
+    TInlineComponentArray<UStaticMeshComponent*> MeshComponentsArray;
+    Actor->GetComponents<UStaticMeshComponent>(MeshComponentsArray);
+
+    for (UStaticMeshComponent* Candidate : MeshComponentsArray)
+    {
+        if (!Candidate) continue;
+
+        UStaticMesh* Mesh = Candidate->GetStaticMesh();
+        if (!Mesh) continue;
+
+        const FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
+        if (!RenderData || RenderData->LODResources.Num() == 0) continue;
+
+        return Candidate;
+    }
+
+    return nullptr;
+}
+
 void TryAutoAttachGeometryComponent(AActor* Actor)
 {
+    if (!GNativeEngine || !GBridge.IsValid()) return;
+
     UWorld* World = Actor ? Actor->GetWorld() : nullptr;
     if (!World || !World->IsGameWorld()) return;
     if (Actor->HasAnyFlags(RF_ClassDefaultObject)) return;
     if (Actor->FindComponentByClass<UMagGeometryComponent>()) return;
 
-    TInlineComponentArray<UStaticMeshComponent*> MeshComponentsArray;
-    Actor->GetComponents<UStaticMeshComponent>(MeshComponentsArray);
-
-    UStaticMeshComponent* MeshComponent = nullptr;
-    for (UStaticMeshComponent* Candidate : MeshComponentsArray)
-    {
-        if (Candidate && Candidate->GetStaticMesh())
-        {
-            MeshComponent = Candidate;
-            break;
-        }
-    }
-
+    UStaticMeshComponent* MeshComponent = FindUsableStaticMeshComponent(Actor);
     if (!MeshComponent) return;
 
     UMagGeometryComponent* GeometryComponent =

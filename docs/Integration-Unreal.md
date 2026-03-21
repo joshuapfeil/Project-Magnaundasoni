@@ -173,7 +173,7 @@ dynamic-importance settings.
 
 ```cpp
 // In your actor's constructor or Blueprint
-UMagnGeometryComponent* GeomComp = CreateDefaultSubobject<UMagnGeometryComponent>(
+UMagGeometryComponent* GeomComp = CreateDefaultSubobject<UMagGeometryComponent>(
     TEXT("MagnGeometry"));
 GeomComp->MaterialPreset = TEXT("Wood");
 GeomComp->bAutoRegister = true;
@@ -310,7 +310,7 @@ Create a `UMagnMaterialDataAsset` in the Content Browser:
 
 1. Right-click → **Magnaundasoni → Material Data Asset**.
 2. Configure absorption, transmission, and scattering bands.
-3. Reference the asset in your `UMagnGeometryComponent`.
+3. Reference the asset in your `UMagGeometryComponent`.
 
 ---
 
