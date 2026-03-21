@@ -252,11 +252,13 @@ void OutputMixer::mix(float* outputBuffer, uint32_t numFrames) {
             *reinterpret_cast<const BandArray*>(res.direct.perBandGain),
             FrequencyWeighting::Flat);
 
-        bool useBinaural = config_.spatializationMode == SpatializationMode::Binaural &&
-                           binauralSources < config_.maxBinauralSources;
+        bool binauralMode = config_.spatializationMode == SpatializationMode::Binaural;
+        bool useBinaural = binauralMode && binauralSources < config_.maxBinauralSources;
         Vec3 directDir{res.direct.direction[0], res.direct.direction[1], res.direct.direction[2]};
         if (useBinaural) ++binauralSources;
-        if (useBinaural || config_.spatializationMode != SpatializationMode::Binaural) {
+        if (useBinaural) {
+            writeSpatialisedTap(directDir, res.direct.delay, directGain);
+        } else if (!binauralMode) {
             writeSpatialisedTap(directDir, res.direct.delay, directGain);
         } else {
             float pan = directDir.x * 0.5f + 0.5f;

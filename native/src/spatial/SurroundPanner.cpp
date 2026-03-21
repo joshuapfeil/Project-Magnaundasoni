@@ -8,9 +8,11 @@ namespace magnaundasoni {
 
 namespace {
 
+constexpr float kPi = 3.14159265358979323846f;
+
 Vec3 directionFromAngles(float azimuthDeg, float elevationDeg) {
-    float azimuth = azimuthDeg * 3.14159265358979323846f / 180.0f;
-    float elevation = elevationDeg * 3.14159265358979323846f / 180.0f;
+    float azimuth = azimuthDeg * kPi / 180.0f;
+    float elevation = elevationDeg * kPi / 180.0f;
     float cosElevation = std::cos(elevation);
     return {
         std::sin(azimuth) * cosElevation,

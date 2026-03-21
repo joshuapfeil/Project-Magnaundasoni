@@ -336,9 +336,9 @@ TEST_CASE("Listener head pose API validates listener IDs and quaternion data", "
     MagListenerID listenerID = 0;
     REQUIRE(mag_listener_register(engine, &listener, &listenerID) == MAG_OK);
 
-    const float yaw90[4] = {0.0f, 0.70710677f, 0.0f, 0.70710677f};
-    REQUIRE(mag_set_listener_head_pose(engine, listenerID, yaw90) == MAG_OK);
-    REQUIRE(mag_set_listener_head_pose(engine, listenerID + 99, yaw90) == MAG_ERROR);
+    const float yaw90Quat[4] = {0.0f, 0.70710677f, 0.0f, 0.70710677f};
+    REQUIRE(mag_set_listener_head_pose(engine, listenerID, yaw90Quat) == MAG_OK);
+    REQUIRE(mag_set_listener_head_pose(engine, listenerID + 99, yaw90Quat) == MAG_ERROR);
 
     const float invalidQuat[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     REQUIRE(mag_set_listener_head_pose(engine, listenerID, invalidQuat) == MAG_INVALID_PARAM);
@@ -363,8 +363,8 @@ TEST_CASE("OutputMixer binaural mode responds to direction and head pose", "[spa
     float rightEnergy = channelEnergy(output, 2, 1);
     REQUIRE(rightEnergy > leftEnergy);
 
-    const float yaw180[4] = {0.0f, 1.0f, 0.0f, 0.0f};
-    mixer.setListenerHeadPose(yaw180);
+    const float yaw180Quat[4] = {0.0f, 1.0f, 0.0f, 0.0f};
+    mixer.setListenerHeadPose(yaw180Quat);
     mixer.stageResult(2, 1, directOnlyResult(1.0f, 0.0f, 1.0f));
     mixer.commitStaged();
 
