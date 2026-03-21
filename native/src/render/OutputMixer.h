@@ -7,6 +7,9 @@
 #define MAGNAUNDASONI_RENDER_OUTPUT_MIXER_H
 
 #include "../core/Types.h"
+#include "../spatial/BinauralConvolver.h"
+#include "../spatial/SurroundPanner.h"
+#include "../spatial/SpatialConfig.h"
 #include "Magnaundasoni.h"
 
 #include <atomic>
@@ -17,6 +20,12 @@ namespace magnaundasoni {
 
 class OutputMixer {
 public:
+    enum class SpatializationMode : uint32_t {
+        Passthrough = 0,
+        Binaural,
+        Surround
+    };
+
     struct Config {
         uint32_t sampleRate    = 48000;
         uint32_t channels      = 2;        // stereo
@@ -24,6 +33,9 @@ public:
         float    maxDelayMs    = 2000.0f;  // max delay line length
         float    masterGain    = 1.0f;
         float    feedbackSmoothRate = 0.001f;
+        SpatializationMode spatializationMode = SpatializationMode::Passthrough;
+        uint32_t maxBinauralSources = 16;
+        MagSpeakerLayout speakerLayout = defaultSpeakerLayout(MAG_SPEAKERS_STEREO);
     };
 
     OutputMixer();
@@ -43,6 +55,8 @@ public:
     /// @param numFrames Number of audio frames to produce.
     void mix(float* outputBuffer, uint32_t numFrames);
 
+    void setListenerHeadPose(const float quaternion[4]);
+
     /// Get the currently configured sample rate.
     uint32_t getSampleRate() const { return config_.sampleRate; }
 
@@ -59,6 +73,8 @@ private:
     /// Synthesise simple parametric reverb tail from RT60/decay.
     void synthesiseReverb(float* outputBuffer, uint32_t numFrames,
                           const MagLateField& lateField);
+
+    void writeSpatialisedTap(const Vec3& direction, float baseDelay, float gain);
 
     Config config_;
 
@@ -94,6 +110,8 @@ private:
         float    feedback = 0.0f;
     };
     FDNState fdnState_;
+    BinauralConvolver binauralConvolver_;
+    SurroundPanner    surroundPanner_;
 
     void initialiseFDN();
 };

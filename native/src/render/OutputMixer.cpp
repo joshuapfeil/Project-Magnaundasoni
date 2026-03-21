@@ -21,6 +21,12 @@ OutputMixer::OutputMixer() {
 
 void OutputMixer::configure(const Config& cfg) {
     config_ = cfg;
+    if (config_.channels == 0) config_.channels = 1;
+    if (config_.maxBinauralSources == 0) config_.maxBinauralSources = 16;
+    if (config_.speakerLayout.channelCount == 0 ||
+        config_.speakerLayout.channelCount > MAG_MAX_SPEAKERS) {
+        config_.speakerLayout = defaultSpeakerLayout(MAG_SPEAKERS_STEREO);
+    }
 
     // Allocate delay lines
     uint32_t maxDelaySamples = static_cast<uint32_t>(
@@ -38,6 +44,8 @@ void OutputMixer::configure(const Config& cfg) {
 
     // Initialise FDN
     initialiseFDN();
+    binauralConvolver_.configure(config_.sampleRate);
+    surroundPanner_.configure(config_.speakerLayout);
 }
 
 void OutputMixer::initialiseFDN() {
@@ -161,10 +169,58 @@ void OutputMixer::synthesiseReverb(float* outputBuffer, uint32_t numFrames,
                                      static_cast<uint32_t>(delay.size());
         }
 
-        // Mix FDN output into audio buffer (spread across channels)
+        // Mix FDN output into audio buffer.
         float reverbSample = (taps[0] + taps[1] + taps[2] + taps[3]) * 0.25f;
-        for (uint32_t c = 0; c < ch; ++c) {
-            outputBuffer[f * ch + c] += reverbSample * config_.masterGain;
+        if (config_.spatializationMode == SpatializationMode::Surround && ch > 2) {
+            std::vector<float> gains(ch, 0.0f);
+            surroundPanner_.diffuse(reverbSample * config_.masterGain, gains.data(), ch,
+                                    lateField.diffuseDirectionality);
+            for (uint32_t c = 0; c < ch; ++c) {
+                outputBuffer[f * ch + c] += gains[c];
+            }
+        } else {
+            for (uint32_t c = 0; c < ch; ++c) {
+                outputBuffer[f * ch + c] += reverbSample * config_.masterGain;
+            }
+        }
+    }
+}
+
+void OutputMixer::setListenerHeadPose(const float quaternion[4]) {
+    binauralConvolver_.setHeadPose(quaternion);
+}
+
+void OutputMixer::writeSpatialisedTap(const Vec3& direction, float baseDelay, float gain) {
+    uint32_t ch = config_.channels;
+    switch (config_.spatializationMode) {
+        case SpatializationMode::Binaural: {
+            auto ears = binauralConvolver_.evaluate(direction, baseDelay, gain * config_.masterGain);
+            if (ch >= 2) {
+                writeDelayLine(ears.leftDelaySec, ears.leftGain, 0);
+                writeDelayLine(ears.rightDelaySec, ears.rightGain, 1);
+            } else {
+                writeDelayLine(baseDelay, 0.5f * (ears.leftGain + ears.rightGain), 0);
+            }
+            break;
+        }
+        case SpatializationMode::Surround: {
+            std::vector<float> gains(ch, 0.0f);
+            surroundPanner_.pan(direction, gain * config_.masterGain, gains.data(), ch);
+            for (uint32_t c = 0; c < ch; ++c) {
+                writeDelayLine(baseDelay, gains[c], c);
+            }
+            break;
+        }
+        case SpatializationMode::Passthrough:
+        default: {
+            float pan = direction.x * 0.5f + 0.5f; // x → [0,1]
+            if (ch >= 2) {
+                writeDelayLine(baseDelay, (1.0f - pan) * gain * config_.masterGain, 0);
+                writeDelayLine(baseDelay, pan * gain * config_.masterGain, 1);
+            } else {
+                writeDelayLine(baseDelay, gain * config_.masterGain, 0);
+            }
+            break;
         }
     }
 }
@@ -186,6 +242,7 @@ void OutputMixer::mix(float* outputBuffer, uint32_t numFrames) {
 
     MagLateField combinedLateField{};
     uint32_t lateFieldCount = 0;
+    uint32_t binauralSources = 0;
 
     for (const auto& sr : localActive) {
         const auto& res = sr.result;
@@ -195,17 +252,20 @@ void OutputMixer::mix(float* outputBuffer, uint32_t numFrames) {
             *reinterpret_cast<const BandArray*>(res.direct.perBandGain),
             FrequencyWeighting::Flat);
 
-        // Pan direct sound based on direction (simple L/R)
-        float pan = res.direct.direction[0] * 0.5f + 0.5f; // x → [0,1]
-        float gainL = (1.0f - pan) * directGain * config_.masterGain;
-        float gainR = pan * directGain * config_.masterGain;
-
-        // Write direct into delay line
-        if (ch >= 2) {
-            writeDelayLine(res.direct.delay, gainL, 0);
-            writeDelayLine(res.direct.delay, gainR, 1);
+        bool useBinaural = config_.spatializationMode == SpatializationMode::Binaural &&
+                           binauralSources < config_.maxBinauralSources;
+        Vec3 directDir{res.direct.direction[0], res.direct.direction[1], res.direct.direction[2]};
+        if (useBinaural) ++binauralSources;
+        if (useBinaural || config_.spatializationMode != SpatializationMode::Binaural) {
+            writeSpatialisedTap(directDir, res.direct.delay, directGain);
         } else {
-            writeDelayLine(res.direct.delay, directGain * config_.masterGain, 0);
+            float pan = directDir.x * 0.5f + 0.5f;
+            if (ch >= 2) {
+                writeDelayLine(res.direct.delay, (1.0f - pan) * directGain * config_.masterGain, 0);
+                writeDelayLine(res.direct.delay, pan * directGain * config_.masterGain, 1);
+            } else {
+                writeDelayLine(res.direct.delay, directGain * config_.masterGain, 0);
+            }
         }
 
         // --- Reflections ---
@@ -215,14 +275,8 @@ void OutputMixer::mix(float* outputBuffer, uint32_t numFrames) {
                 *reinterpret_cast<const BandArray*>(tap.perBandEnergy),
                 FrequencyWeighting::Flat);
 
-            float tapPan = tap.direction[0] * 0.5f + 0.5f;
-
-            if (ch >= 2) {
-                writeDelayLine(tap.delay, (1.0f - tapPan) * tapGain * config_.masterGain, 0);
-                writeDelayLine(tap.delay, tapPan * tapGain * config_.masterGain, 1);
-            } else {
-                writeDelayLine(tap.delay, tapGain * config_.masterGain, 0);
-            }
+            writeSpatialisedTap({tap.direction[0], tap.direction[1], tap.direction[2]},
+                                tap.delay, tapGain);
         }
 
         // --- Diffraction ---
@@ -232,14 +286,8 @@ void OutputMixer::mix(float* outputBuffer, uint32_t numFrames) {
                 *reinterpret_cast<const BandArray*>(tap.perBandAttenuation),
                 FrequencyWeighting::Flat);
 
-            float tapPan = tap.direction[0] * 0.5f + 0.5f;
-
-            if (ch >= 2) {
-                writeDelayLine(tap.delay, (1.0f - tapPan) * tapGain * config_.masterGain, 0);
-                writeDelayLine(tap.delay, tapPan * tapGain * config_.masterGain, 1);
-            } else {
-                writeDelayLine(tap.delay, tapGain * config_.masterGain, 0);
-            }
+            writeSpatialisedTap({tap.direction[0], tap.direction[1], tap.direction[2]},
+                                tap.delay, tapGain);
         }
 
         // Accumulate late field

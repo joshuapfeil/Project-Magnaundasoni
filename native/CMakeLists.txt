@@ -79,6 +79,20 @@ set(MAG_RENDER_HEADERS
     src/render/AcousticRenderer.h
 )
 
+set(MAG_SPATIAL_SOURCES
+    src/spatial/SpatialConfig.cpp
+    src/spatial/HRTFDatabase.cpp
+    src/spatial/BinauralConvolver.cpp
+    src/spatial/SurroundPanner.cpp
+)
+
+set(MAG_SPATIAL_HEADERS
+    src/spatial/SpatialConfig.h
+    src/spatial/HRTFDatabase.h
+    src/spatial/BinauralConvolver.h
+    src/spatial/SurroundPanner.h
+)
+
 # Engine entry-point that implements the C ABI
 set(MAG_ENGINE_SOURCES
     src/Engine.cpp
@@ -93,6 +107,8 @@ add_library(magnaundasoni SHARED
     ${MAG_CORE_SOURCES}
     ${MAG_RENDER_HEADERS}
     ${MAG_RENDER_SOURCES}
+    ${MAG_SPATIAL_HEADERS}
+    ${MAG_SPATIAL_SOURCES}
     ${MAG_ENGINE_SOURCES}
 )
 

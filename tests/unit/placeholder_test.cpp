@@ -11,8 +11,13 @@
 
 #include "Magnaundasoni.h"
 #include "render/BandProcessor.h"
+#include "render/OutputMixer.h"
+#include "spatial/SpatialConfig.h"
 
+#include <algorithm>
 #include <cmath>
+#include <numeric>
+#include <vector>
 
 using namespace magnaundasoni;
 using namespace magnaundasoni::BandProcessor;
@@ -33,6 +38,28 @@ static MagEngineConfig defaultConfig() {
     cfg.worldChunkSize      = 50.0f;
     cfg.effectiveBandCount  = 8;
     return cfg;
+}
+
+static MagAcousticResult directOnlyResult(float x, float y, float z, float gain = 1.0f) {
+    MagAcousticResult result{};
+    result.direct.delay = 0.0f;
+    result.direct.direction[0] = x;
+    result.direct.direction[1] = y;
+    result.direct.direction[2] = z;
+    for (int i = 0; i < MAG_MAX_BANDS; ++i) {
+        result.direct.perBandGain[i] = gain;
+    }
+    return result;
+}
+
+static float channelEnergy(const std::vector<float>& buffer,
+                           uint32_t channels,
+                           uint32_t channel) {
+    float sum = 0.0f;
+    for (size_t i = channel; i < buffer.size(); i += channels) {
+        sum += std::fabs(buffer[i]);
+    }
+    return sum;
 }
 
 // ---------------------------------------------------------------------------
@@ -241,6 +268,132 @@ TEST_CASE("mag_set_quality accepts all valid levels", "[engine][quality]") {
     REQUIRE(mag_set_quality(engine, MAG_QUALITY_ULTRA) == MAG_OK);
 
     mag_engine_destroy(engine);
+}
+
+TEST_CASE("Spatial config defaults to auto with stereo layout", "[spatial][config]") {
+    MagEngine engine = nullptr;
+    MagEngineConfig cfg = defaultConfig();
+    REQUIRE(mag_engine_create(&cfg, &engine) == MAG_OK);
+
+    MagSpatialConfig spatial{};
+    REQUIRE(mag_get_spatial_config(engine, &spatial) == MAG_OK);
+    REQUIRE(spatial.mode == MAG_SPATIAL_AUTO);
+    REQUIRE(spatial.speakerLayout == MAG_SPEAKERS_STEREO);
+    REQUIRE(spatial.hrtfPreset == MAG_HRTF_PRESET_DEFAULT_KEMAR);
+    REQUIRE(spatial.maxBinauralSources == 16);
+
+    MagSpatialBackendInfo backend{};
+    REQUIRE(mag_get_spatial_backend_info(engine, &backend) == MAG_OK);
+    REQUIRE(backend.type == MAG_SPATIAL_BACKEND_BUILTIN_BINAURAL);
+    REQUIRE(backend.outputChannels == 2);
+    REQUIRE(backend.hasCustomHRTFDataset == 0);
+
+    REQUIRE(mag_engine_destroy(engine) == MAG_OK);
+}
+
+TEST_CASE("Spatial config and HRTF controls round-trip through the C ABI", "[spatial][abi]") {
+    MagEngine engine = nullptr;
+    MagEngineConfig cfg = defaultConfig();
+    REQUIRE(mag_engine_create(&cfg, &engine) == MAG_OK);
+
+    MagSpatialConfig spatial{};
+    spatial.mode = MAG_SPATIAL_SURROUND_51;
+    spatial.speakerLayout = MAG_SPEAKERS_51;
+    spatial.hrtfPreset = MAG_HRTF_PRESET_DEFAULT_KEMAR;
+    spatial.maxBinauralSources = 4;
+    REQUIRE(mag_set_spatial_config(engine, &spatial) == MAG_OK);
+
+    MagSpatialConfig roundTrip{};
+    REQUIRE(mag_get_spatial_config(engine, &roundTrip) == MAG_OK);
+    REQUIRE(roundTrip.mode == MAG_SPATIAL_SURROUND_51);
+    REQUIRE(roundTrip.speakerLayout == MAG_SPEAKERS_51);
+    REQUIRE(roundTrip.maxBinauralSources == 4);
+
+    uint8_t fakeSofa[] = {1, 2, 3, 4};
+    REQUIRE(mag_set_hrtf_dataset(engine, fakeSofa, sizeof(fakeSofa)) == MAG_OK);
+
+    MagSpatialBackendInfo backend{};
+    REQUIRE(mag_get_spatial_backend_info(engine, &backend) == MAG_OK);
+    REQUIRE(backend.type == MAG_SPATIAL_BACKEND_BUILTIN_SURROUND);
+    REQUIRE(backend.outputChannels == 6);
+    REQUIRE(backend.hasCustomHRTFDataset == 1);
+
+    REQUIRE(mag_set_hrtf_preset(engine, MAG_HRTF_PRESET_DEFAULT_KEMAR) == MAG_OK);
+    REQUIRE(mag_get_spatial_backend_info(engine, &backend) == MAG_OK);
+    REQUIRE(backend.hasCustomHRTFDataset == 0);
+
+    REQUIRE(mag_engine_destroy(engine) == MAG_OK);
+}
+
+TEST_CASE("Listener head pose API validates listener IDs and quaternion data", "[spatial][headpose]") {
+    MagEngine engine = nullptr;
+    MagEngineConfig cfg = defaultConfig();
+    REQUIRE(mag_engine_create(&cfg, &engine) == MAG_OK);
+
+    MagListenerDesc listener{};
+    listener.forward[2] = 1.0f;
+    listener.up[1] = 1.0f;
+    MagListenerID listenerID = 0;
+    REQUIRE(mag_listener_register(engine, &listener, &listenerID) == MAG_OK);
+
+    const float yaw90[4] = {0.0f, 0.70710677f, 0.0f, 0.70710677f};
+    REQUIRE(mag_set_listener_head_pose(engine, listenerID, yaw90) == MAG_OK);
+    REQUIRE(mag_set_listener_head_pose(engine, listenerID + 99, yaw90) == MAG_ERROR);
+
+    const float invalidQuat[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    REQUIRE(mag_set_listener_head_pose(engine, listenerID, invalidQuat) == MAG_INVALID_PARAM);
+
+    REQUIRE(mag_engine_destroy(engine) == MAG_OK);
+}
+
+TEST_CASE("OutputMixer binaural mode responds to direction and head pose", "[spatial][mixer]") {
+    OutputMixer mixer;
+    OutputMixer::Config cfg{};
+    cfg.channels = 2;
+    cfg.maxBlockSize = 64;
+    cfg.spatializationMode = OutputMixer::SpatializationMode::Binaural;
+    mixer.configure(cfg);
+
+    mixer.stageResult(1, 1, directOnlyResult(1.0f, 0.0f, 1.0f));
+    mixer.commitStaged();
+
+    std::vector<float> output(64 * 2, 0.0f);
+    mixer.mix(output.data(), 64);
+    float leftEnergy = channelEnergy(output, 2, 0);
+    float rightEnergy = channelEnergy(output, 2, 1);
+    REQUIRE(rightEnergy > leftEnergy);
+
+    const float yaw180[4] = {0.0f, 1.0f, 0.0f, 0.0f};
+    mixer.setListenerHeadPose(yaw180);
+    mixer.stageResult(2, 1, directOnlyResult(1.0f, 0.0f, 1.0f));
+    mixer.commitStaged();
+
+    std::fill(output.begin(), output.end(), 0.0f);
+    mixer.mix(output.data(), 64);
+    float rotatedLeftEnergy = channelEnergy(output, 2, 0);
+    float rotatedRightEnergy = channelEnergy(output, 2, 1);
+    REQUIRE(rotatedLeftEnergy > rotatedRightEnergy);
+}
+
+TEST_CASE("OutputMixer surround mode distributes energy across configured speakers", "[spatial][surround]") {
+    OutputMixer mixer;
+    OutputMixer::Config cfg{};
+    cfg.channels = 6;
+    cfg.maxBlockSize = 32;
+    cfg.spatializationMode = OutputMixer::SpatializationMode::Surround;
+    cfg.speakerLayout = defaultSpeakerLayout(MAG_SPEAKERS_51);
+    mixer.configure(cfg);
+
+    mixer.stageResult(1, 1, directOnlyResult(1.0f, 0.0f, 1.0f));
+    mixer.commitStaged();
+
+    std::vector<float> output(32 * 6, 0.0f);
+    mixer.mix(output.data(), 32);
+
+    REQUIRE(channelEnergy(output, 6, 1) > channelEnergy(output, 6, 0));
+    REQUIRE(channelEnergy(output, 6, 1) > 0.0f);
+    REQUIRE(std::accumulate(output.begin(), output.end(), 0.0f,
+                            [](float acc, float sample) { return acc + std::fabs(sample); }) > 0.0f);
 }
 
 // ---------------------------------------------------------------------------

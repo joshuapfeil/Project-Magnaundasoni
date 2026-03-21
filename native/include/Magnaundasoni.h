@@ -10,6 +10,7 @@
 #ifndef MAGNAUNDASONI_H
 #define MAGNAUNDASONI_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 /* ------------------------------------------------------------------ */
@@ -76,6 +77,74 @@ typedef enum {
 /* Constants                                                          */
 /* ------------------------------------------------------------------ */
 #define MAG_MAX_BANDS 8
+#define MAG_MAX_SPEAKERS 12
+
+/* ------------------------------------------------------------------ */
+/* Spatialisation                                                     */
+/* ------------------------------------------------------------------ */
+typedef enum {
+    MAG_HRTF_PRESET_DEFAULT_KEMAR = 0
+} MagHRTFPreset;
+
+typedef enum {
+    MAG_SPEAKERS_CUSTOM = 0,
+    MAG_SPEAKERS_STEREO = 2,
+    MAG_SPEAKERS_QUAD   = 4,
+    MAG_SPEAKERS_51     = 6,
+    MAG_SPEAKERS_71     = 8,
+    MAG_SPEAKERS_714    = 12
+} MagSpeakerLayoutPreset;
+
+typedef enum {
+    MAG_SPATIAL_BACKEND_PASSTHROUGH      = 0,
+    MAG_SPATIAL_BACKEND_BUILTIN_BINAURAL = 1,
+    MAG_SPATIAL_BACKEND_BUILTIN_SURROUND = 2,
+    MAG_SPATIAL_BACKEND_WINDOWS_SONIC    = 3,
+    MAG_SPATIAL_BACKEND_DOLBY_ATMOS      = 4,
+    MAG_SPATIAL_BACKEND_STEAM_AUDIO      = 5,
+    MAG_SPATIAL_BACKEND_META_XR          = 6,
+    MAG_SPATIAL_BACKEND_OPENXR           = 7,
+    MAG_SPATIAL_BACKEND_CORE_AUDIO       = 8
+} MagSpatialBackendType;
+
+typedef enum {
+    MAG_SPATIAL_AUTO           = 0,
+    MAG_SPATIAL_PASSTHROUGH    = 1,
+    MAG_SPATIAL_BINAURAL       = 2,
+    MAG_SPATIAL_SURROUND_STEREO= 3,
+    MAG_SPATIAL_SURROUND_QUAD  = 4,
+    MAG_SPATIAL_SURROUND_51    = 5,
+    MAG_SPATIAL_SURROUND_71    = 6,
+    MAG_SPATIAL_SURROUND_714   = 7,
+    MAG_SPATIAL_WINDOWS_SONIC  = 8,
+    MAG_SPATIAL_DOLBY_ATMOS    = 9,
+    MAG_SPATIAL_STEAM_AUDIO    = 10,
+    MAG_SPATIAL_META_XR        = 11,
+    MAG_SPATIAL_OPENXR         = 12,
+    MAG_SPATIAL_CORE_AUDIO     = 13
+} MagSpatialMode;
+
+typedef struct {
+    MagSpeakerLayoutPreset preset;
+    uint32_t               channelCount;
+    float                  azimuthDegrees[MAG_MAX_SPEAKERS];
+    float                  elevationDegrees[MAG_MAX_SPEAKERS];
+} MagSpeakerLayout;
+
+typedef struct {
+    MagSpatialMode         mode;
+    MagSpeakerLayoutPreset speakerLayout;
+    MagHRTFPreset          hrtfPreset;
+    uint32_t               maxBinauralSources;
+} MagSpatialConfig;
+
+typedef struct {
+    MagSpatialBackendType type;
+    MagSpatialMode        requestedMode;
+    uint32_t              outputChannels;
+    uint32_t              usesHeadTracking;
+    uint32_t              hasCustomHRTFDataset;
+} MagSpatialBackendInfo;
 
 /* ------------------------------------------------------------------ */
 /* Configuration                                                      */
@@ -258,6 +327,25 @@ MAG_API MagStatus mag_listener_unregister(MagEngine engine,
                                           MagListenerID id);
 MAG_API MagStatus mag_listener_update(MagEngine engine, MagListenerID id,
                                       const MagListenerDesc* desc);
+
+/* ------------------------------------------------------------------ */
+/* Spatialisation                                                     */
+/* ------------------------------------------------------------------ */
+MAG_API MagStatus mag_set_spatial_config(MagEngine engine,
+                                         const MagSpatialConfig* config);
+MAG_API MagStatus mag_get_spatial_config(MagEngine engine,
+                                         MagSpatialConfig* outConfig);
+MAG_API MagStatus mag_set_hrtf_dataset(MagEngine engine,
+                                       const void* sofaData,
+                                       size_t sofaSize);
+MAG_API MagStatus mag_set_hrtf_preset(MagEngine engine, MagHRTFPreset preset);
+MAG_API MagStatus mag_set_listener_head_pose(MagEngine engine,
+                                             uint32_t listenerID,
+                                             const float quaternion[4]);
+MAG_API MagStatus mag_set_speaker_layout(MagEngine engine,
+                                         const MagSpeakerLayout* layout);
+MAG_API MagStatus mag_get_spatial_backend_info(MagEngine engine,
+                                               MagSpatialBackendInfo* outInfo);
 
 /* ------------------------------------------------------------------ */
 /* Simulation                                                         */

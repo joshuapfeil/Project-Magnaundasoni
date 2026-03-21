@@ -13,8 +13,11 @@
 #include "core/SpatialGrid.h"
 #include "core/ThreadPool.h"
 #include "core/Types.h"
+#include "spatial/HRTFDatabase.h"
+#include "spatial/SpatialConfig.h"
 
 #include <atomic>
+#include <array>
 #include <chrono>
 #include <cstring>
 #include <memory>
@@ -48,6 +51,12 @@ struct MagEngine_T {
     // Cached results (source,listener) -> result
     std::mutex resultMutex;
     std::unordered_map<uint64_t, MagAcousticResult> cachedResults;
+
+    std::mutex spatialMutex;
+    MagSpatialConfig spatialConfig = defaultSpatialConfig();
+    MagSpeakerLayout speakerLayout = defaultSpeakerLayout(MAG_SPEAKERS_STEREO);
+    HRTFDatabase hrtfDatabase;
+    std::unordered_map<uint32_t, std::array<float, 4>> listenerHeadPoses;
 };
 
 /* ------------------------------------------------------------------ */
@@ -58,6 +67,23 @@ static inline uint64_t pairKey(uint32_t a, uint32_t b) {
 }
 
 static Vec3 toVec3(const float* p) { return {p[0], p[1], p[2]}; }
+
+static Vec3 rotateByQuaternion(const Vec3& v, const float q[4]) {
+    Vec3 u{q[0], q[1], q[2]};
+    float s = q[3];
+    return 2.0f * u.dot(v) * u +
+           (s * s - u.dot(u)) * v +
+           2.0f * s * u.cross(v);
+}
+
+static bool normaliseQuaternion(const float in[4], float out[4]) {
+    if (!in || !out) return false;
+    float lenSq = in[0] * in[0] + in[1] * in[1] + in[2] * in[2] + in[3] * in[3];
+    if (lenSq <= 1e-12f) return false;
+    float invLen = 1.0f / std::sqrt(lenSq);
+    for (int i = 0; i < 4; ++i) out[i] = in[i] * invLen;
+    return true;
+}
 
 /** Build the global BVH from all registered geometry. */
 static void rebuildBVH(MagEngine_T* e) {
@@ -294,7 +320,7 @@ MagStatus mag_listener_unregister(MagEngine engine, MagListenerID id) {
 }
 
 MagStatus mag_listener_update(MagEngine engine, MagListenerID id,
-                              const MagListenerDesc* desc) {
+                               const MagListenerDesc* desc) {
     if (!engine || !desc) return MAG_INVALID_PARAM;
 
     ListenerEntry lis;
@@ -303,6 +329,100 @@ MagStatus mag_listener_update(MagEngine engine, MagListenerID id,
     lis.up       = toVec3(desc->up);
 
     return engine->scene.updateListener(id, lis) ? MAG_OK : MAG_ERROR;
+}
+
+/* ------------------------------------------------------------------ */
+/* Spatialisation                                                     */
+/* ------------------------------------------------------------------ */
+MagStatus mag_set_spatial_config(MagEngine engine,
+                                 const MagSpatialConfig* config) {
+    if (!engine || !config) return MAG_INVALID_PARAM;
+    if (!isValidSpatialMode(config->mode) ||
+        !isValidHRTFPreset(config->hrtfPreset)) {
+        return MAG_INVALID_PARAM;
+    }
+
+    std::lock_guard lock(engine->spatialMutex);
+    engine->spatialConfig = *config;
+    if (engine->spatialConfig.maxBinauralSources == 0) {
+        engine->spatialConfig.maxBinauralSources = 16;
+    }
+    MagSpeakerLayoutPreset layoutPreset = speakerLayoutForMode(config->mode,
+                                                               config->speakerLayout);
+    if (layoutPreset != MAG_SPEAKERS_CUSTOM) {
+        engine->speakerLayout = defaultSpeakerLayout(layoutPreset);
+    } else if (engine->speakerLayout.channelCount == 0) {
+        engine->speakerLayout = defaultSpeakerLayout(MAG_SPEAKERS_STEREO);
+    }
+    return MAG_OK;
+}
+
+MagStatus mag_get_spatial_config(MagEngine engine,
+                                 MagSpatialConfig* outConfig) {
+    if (!engine || !outConfig) return MAG_INVALID_PARAM;
+    std::lock_guard lock(engine->spatialMutex);
+    *outConfig = engine->spatialConfig;
+    return MAG_OK;
+}
+
+MagStatus mag_set_hrtf_dataset(MagEngine engine,
+                               const void* sofaData,
+                               size_t sofaSize) {
+    if (!engine || !sofaData || sofaSize == 0) return MAG_INVALID_PARAM;
+    std::lock_guard lock(engine->spatialMutex);
+    return engine->hrtfDatabase.setCustomDataset(sofaData, sofaSize)
+               ? MAG_OK
+               : MAG_ERROR;
+}
+
+MagStatus mag_set_hrtf_preset(MagEngine engine, MagHRTFPreset preset) {
+    if (!engine || !isValidHRTFPreset(preset)) return MAG_INVALID_PARAM;
+    std::lock_guard lock(engine->spatialMutex);
+    engine->spatialConfig.hrtfPreset = preset;
+    engine->hrtfDatabase.setPreset(preset);
+    return MAG_OK;
+}
+
+MagStatus mag_set_listener_head_pose(MagEngine engine,
+                                     uint32_t listenerID,
+                                     const float quaternion[4]) {
+    if (!engine || !quaternion) return MAG_INVALID_PARAM;
+
+    float normalised[4];
+    if (!normaliseQuaternion(quaternion, normalised)) return MAG_INVALID_PARAM;
+
+    const ListenerEntry* existing = engine->scene.getListener(listenerID);
+    if (!existing) return MAG_ERROR;
+
+    ListenerEntry updated = *existing;
+    updated.forward = rotateByQuaternion({0.0f, 0.0f, 1.0f}, normalised).normalized();
+    updated.up = rotateByQuaternion({0.0f, 1.0f, 0.0f}, normalised).normalized();
+    if (!engine->scene.updateListener(listenerID, updated)) return MAG_ERROR;
+
+    std::lock_guard lock(engine->spatialMutex);
+    engine->listenerHeadPoses[listenerID] = {
+        normalised[0], normalised[1], normalised[2], normalised[3]
+    };
+    return MAG_OK;
+}
+
+MagStatus mag_set_speaker_layout(MagEngine engine,
+                                 const MagSpeakerLayout* layout) {
+    if (!engine || !isValidSpeakerLayout(layout)) return MAG_INVALID_PARAM;
+    std::lock_guard lock(engine->spatialMutex);
+    engine->speakerLayout = *layout;
+    engine->spatialConfig.speakerLayout = layout->preset;
+    return MAG_OK;
+}
+
+MagStatus mag_get_spatial_backend_info(MagEngine engine,
+                                       MagSpatialBackendInfo* outInfo) {
+    if (!engine || !outInfo) return MAG_INVALID_PARAM;
+    std::lock_guard lock(engine->spatialMutex);
+    *outInfo = resolveSpatialBackend(engine->spatialConfig,
+                                     engine->speakerLayout,
+                                     engine->hrtfDatabase.hasCustomDataset());
+    return MAG_OK;
 }
 
 /* ------------------------------------------------------------------ */
