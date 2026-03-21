@@ -85,9 +85,9 @@ namespace Magnaundasoni
             GL.MultMatrix(Matrix4x4.identity);
 
 #if UNITY_2022_2_OR_NEWER
-            var sources = Object.FindObjectsByType<MagnaundasoniSource>(FindObjectsSortMode.None);
+            var sources = UnityEngine.Object.FindObjectsByType<MagnaundasoniSource>(FindObjectsSortMode.None);
 #else
-            var sources = Object.FindObjectsOfType<MagnaundasoniSource>();
+            var sources = UnityEngine.Object.FindObjectsOfType<MagnaundasoniSource>();
 #endif
             foreach (var source in sources)
             {
@@ -252,9 +252,9 @@ namespace Magnaundasoni
             if (listener == null) return;
 
 #if UNITY_2022_2_OR_NEWER
-            var sources = Object.FindObjectsByType<MagnaundasoniSource>(FindObjectsSortMode.None);
+            var sources = UnityEngine.Object.FindObjectsByType<MagnaundasoniSource>(FindObjectsSortMode.None);
 #else
-            var sources = Object.FindObjectsOfType<MagnaundasoniSource>();
+            var sources = UnityEngine.Object.FindObjectsOfType<MagnaundasoniSource>();
 #endif
             foreach (var source in sources)
             {

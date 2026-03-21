@@ -120,9 +120,9 @@ namespace Magnaundasoni
         {
             int applied = 0;
 #if UNITY_2022_2_OR_NEWER
-            var allGeometry = Object.FindObjectsByType<MagnaundasoniGeometry>(FindObjectsSortMode.None);
+            var allGeometry = UnityEngine.Object.FindObjectsByType<MagnaundasoniGeometry>(FindObjectsSortMode.None);
 #else
-            var allGeometry = Object.FindObjectsOfType<MagnaundasoniGeometry>();
+            var allGeometry = UnityEngine.Object.FindObjectsOfType<MagnaundasoniGeometry>();
 #endif
             foreach (var geo in allGeometry)
             {
@@ -164,9 +164,9 @@ namespace Magnaundasoni
             EditorGUILayout.Space(4);
 
 #if UNITY_2022_2_OR_NEWER
-            var allMeshRenderers = Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None);
+            var allMeshRenderers = UnityEngine.Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None);
 #else
-            var allMeshRenderers = Object.FindObjectsOfType<MeshRenderer>();
+            var allMeshRenderers = UnityEngine.Object.FindObjectsOfType<MeshRenderer>();
 #endif
             int total = allMeshRenderers.Length;
             int withMaterial = 0;
