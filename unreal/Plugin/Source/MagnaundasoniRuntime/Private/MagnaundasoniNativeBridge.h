@@ -193,6 +193,7 @@ struct FMagNativeBridge
         return SourceRegister   && SourceUnregister   && SourceUpdate
             && ListenerRegister && ListenerUnregister && ListenerUpdate
             && GeometryRegister && GeometryUnregister && GeometryUpdateTransform
-            && Update           && GetAcousticResult;
+            && Update           && GetAcousticResult
+            && MaterialGetPreset && MaterialRegister;
     }
 };

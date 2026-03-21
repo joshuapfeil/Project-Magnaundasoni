@@ -7,6 +7,10 @@
 | Deciders    | Core Team                    |
 | Category    | Architecture / Performance   |
 
+> **Naming note**: Type and function names in this ADR (e.g. `Magn*`, `magn_*`)
+> reflect the original design drafts.  The implementation uses the `Mag` / `mag_`
+> / `MAG_` prefix — see [`docs/API.md`](../API.md).
+
 ## Context
 
 The acoustic solver issues thousands of ray and path queries per frame against

@@ -247,38 +247,6 @@ copy_native_runtime "$NATIVE_THIRDPARTY/Mac/libmagnaundasoni.dylib" \
     "$PLUGIN_BINARIES_DIR/Mac"
 
 # ---------------------------------------------------------------------------
-# If platform-native binaries have already been staged in Source/ThirdParty,
-# mirror them into Plugin/Binaries so precompiled plugin builds remain
-# self-contained when installed into Blueprint-only projects.
-# ---------------------------------------------------------------------------
-COPIED_BINARIES=""
-
-copy_native_runtime() {
-    src="$1"
-    dst_dir="$2"
-    dst="$dst_dir/$(basename "$src")"
-
-    if [ -f "$src" ]; then
-        mkdir -p "$dst_dir"
-        if [ ! -f "$dst" ]; then
-            cp "$src" "$dst"
-            if [ -n "$COPIED_BINARIES" ]; then
-                COPIED_BINARIES="$(printf '%s\n%s' "$COPIED_BINARIES" "$dst")"
-            else
-                COPIED_BINARIES="$dst"
-            fi
-        fi
-    fi
-}
-
-copy_native_runtime "$NATIVE_THIRDPARTY/Win64/magnaundasoni.dll" \
-    "$PLUGIN_BINARIES_DIR/Win64"
-copy_native_runtime "$NATIVE_THIRDPARTY/Linux/libmagnaundasoni.so" \
-    "$PLUGIN_BINARIES_DIR/Linux"
-copy_native_runtime "$NATIVE_THIRDPARTY/Mac/libmagnaundasoni.dylib" \
-    "$PLUGIN_BINARIES_DIR/Mac"
-
-# ---------------------------------------------------------------------------
 # Create archive
 # Preserve any pre-staged Binaries/ payload and exclude generated directories
 # that UBT recreates on first build.
