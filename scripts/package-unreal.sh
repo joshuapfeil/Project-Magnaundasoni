@@ -110,8 +110,12 @@ copy_native_runtime() {
         mkdir -p "$dst_dir"
         if [ ! -f "$dst" ]; then
             cp "$src" "$dst"
-            COPIED_BINARIES="${COPIED_BINARIES}
+            if [ -n "$COPIED_BINARIES" ]; then
+                COPIED_BINARIES="${COPIED_BINARIES}
 $dst"
+            else
+                COPIED_BINARIES="$dst"
+            fi
         fi
     fi
 }
@@ -125,7 +129,8 @@ copy_native_runtime "$NATIVE_THIRDPARTY/Mac/libmagnaundasoni.dylib" \
 
 # ---------------------------------------------------------------------------
 # Create archive
-# Exclude generated directories that UBT recreates on first build.
+# Preserve any pre-staged Binaries/ payload and exclude generated directories
+# that UBT recreates on first build.
 # ---------------------------------------------------------------------------
 (
     cd "$REPO_ROOT/unreal"
