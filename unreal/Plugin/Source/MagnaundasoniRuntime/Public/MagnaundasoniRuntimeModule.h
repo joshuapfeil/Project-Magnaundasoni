@@ -7,6 +7,8 @@
 
 // Forward declaration – full definition lives in the Private bridge header.
 struct FMagNativeBridge;
+class AActor;
+class ULevel;
 
 /**
  * FMagnaundasoniRuntimeModule
@@ -67,8 +69,22 @@ private:
     /** Called once per world tick after all actors have ticked. */
     void OnWorldPostActorTick(UWorld* World, ELevelTick TickType, float DeltaSeconds);
 
+    /** Auto-register static-mesh actors in a world the first time it starts ticking. */
+    void EnsureWorldGeometryAutoRegistration(UWorld* World);
+
+    /** Auto-attach runtime geometry registration to newly spawned actors. */
+    void OnActorSpawned(AActor* Actor);
+
+    /** Clean up per-world delegate state when a world is torn down. */
+    void OnWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources);
+
+    /** Re-scan a world after streamed levels add more actors. */
+    void OnLevelAddedToWorld(ULevel* Level, UWorld* World);
+
     /** Populate the function table from the already-loaded native DLL. */
     bool ResolveFunctionPointers();
 
     FDelegateHandle WorldPostActorTickHandle;
+    FDelegateHandle WorldCleanupHandle;
+    FDelegateHandle LevelAddedToWorldHandle;
 };

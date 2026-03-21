@@ -160,13 +160,20 @@ void AMyGameMode::BeginPlay()
 
 ## Scene Setup
 
-### Automatic Geometry Registration via Actor Component
+### Automatic Geometry Registration
 
-Add the `UMagnGeometryComponent` to any actor with static mesh components.
+At runtime, the Unreal integration now auto-discovers actors that have
+`UStaticMeshComponent`s and do not already have a `UMagGeometryComponent`
+override. The plugin attaches a geometry component automatically, registers the
+mesh with default settings, and keeps doing that for newly spawned or streamed
+actors without re-scanning the full world every frame.
+
+Use an explicit `UMagGeometryComponent` when you need non-default material or
+dynamic-importance settings.
 
 ```cpp
 // In your actor's constructor or Blueprint
-UMagnGeometryComponent* GeomComp = CreateDefaultSubobject<UMagnGeometryComponent>(
+UMagGeometryComponent* GeomComp = CreateDefaultSubobject<UMagGeometryComponent>(
     TEXT("MagnGeometry"));
 GeomComp->MaterialPreset = TEXT("Wood");
 GeomComp->bAutoRegister = true;
@@ -303,7 +310,7 @@ Create a `UMagnMaterialDataAsset` in the Content Browser:
 
 1. Right-click → **Magnaundasoni → Material Data Asset**.
 2. Configure absorption, transmission, and scattering bands.
-3. Reference the asset in your `UMagnGeometryComponent`.
+3. Reference the asset in your `UMagGeometryComponent`.
 
 ---
 

@@ -2,12 +2,19 @@
 
 #include "MagnaundasoniRuntimeModule.h"
 #include "MagnaundasoniNativeBridge.h"
+#include "MagnaundasoniGeometryComponent.h"
 #include "MagnaundasoniModule.h"       // base module: FMagnaundasoniModule
 
+#include "Components/StaticMeshComponent.h"
 #include "HAL/PlatformProcess.h"
+#include "Engine/StaticMesh.h"
 #include "Misc/Paths.h"
+#include "Engine/Level.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
+#include "GameFramework/Actor.h"
 #include "Interfaces/IPluginManager.h"
+#include "StaticMeshResources.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogMagnaundasoniRuntime, Log, All);
 
@@ -18,6 +25,63 @@ static FMagNativeBridge  GBridge;
 static MagEngine         GNativeEngine         = nullptr;
 static void*             GExtraLibHandle        = nullptr;  // extra DllHandle ref we hold
 static uint32            GPrimaryListenerID     = 0;
+static TSet<TWeakObjectPtr<UWorld>> GAutoRegisteredWorlds;
+static TMap<TWeakObjectPtr<UWorld>, FDelegateHandle> GActorSpawnHandles;
+
+namespace
+{
+UStaticMeshComponent* FindUsableStaticMeshComponent(const AActor* Actor)
+{
+    if (!Actor) return nullptr;
+
+    TInlineComponentArray<UStaticMeshComponent*> MeshComponentsArray;
+    Actor->GetComponents<UStaticMeshComponent>(MeshComponentsArray);
+
+    for (UStaticMeshComponent* Candidate : MeshComponentsArray)
+    {
+        if (!Candidate) continue;
+
+        UStaticMesh* Mesh = Candidate->GetStaticMesh();
+        if (!Mesh) continue;
+
+        const FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
+        if (!RenderData || RenderData->LODResources.Num() == 0) continue;
+
+        return Candidate;
+    }
+
+    return nullptr;
+}
+
+void TryAutoAttachGeometryComponent(AActor* Actor)
+{
+    if (!GNativeEngine || !GBridge.IsValid()) return;
+
+    UWorld* World = Actor ? Actor->GetWorld() : nullptr;
+    if (!World || !World->IsGameWorld()) return;
+    if (Actor->HasAnyFlags(RF_ClassDefaultObject)) return;
+    if (Actor->FindComponentByClass<UMagGeometryComponent>()) return;
+
+    UStaticMeshComponent* MeshComponent = FindUsableStaticMeshComponent(Actor);
+    if (!MeshComponent) return;
+
+    UMagGeometryComponent* GeometryComponent =
+        NewObject<UMagGeometryComponent>(Actor, NAME_None, RF_Transient);
+    if (!GeometryComponent) return;
+
+    Actor->AddInstanceComponent(GeometryComponent);
+    GeometryComponent->RegisterComponent();
+
+    if (Actor->HasActorBegunPlay())
+    {
+        GeometryComponent->RegisterGeometry();
+    }
+
+    UE_LOG(LogMagnaundasoniRuntime, Verbose,
+           TEXT("[%s] Auto-attached Mag Geometry component for runtime registration."),
+           *Actor->GetName());
+}
+} // namespace
 
 // ---------------------------------------------------------------------------
 // FMagnaundasoniRuntimeModule  (statics)
@@ -88,6 +152,10 @@ void FMagnaundasoniRuntimeModule::StartupModule()
     // world frame, after all TickComponents have pushed their new positions.
     WorldPostActorTickHandle = FWorldDelegates::OnWorldPostActorTick.AddRaw(
         this, &FMagnaundasoniRuntimeModule::OnWorldPostActorTick);
+    WorldCleanupHandle = FWorldDelegates::OnWorldCleanup.AddRaw(
+        this, &FMagnaundasoniRuntimeModule::OnWorldCleanup);
+    LevelAddedToWorldHandle = FWorldDelegates::LevelAddedToWorld.AddRaw(
+        this, &FMagnaundasoniRuntimeModule::OnLevelAddedToWorld);
 
     UE_LOG(LogMagnaundasoniRuntime, Log,
            TEXT("MagnaundasoniRuntime: Started. Function table resolved. "
@@ -102,6 +170,28 @@ void FMagnaundasoniRuntimeModule::ShutdownModule()
         FWorldDelegates::OnWorldPostActorTick.Remove(WorldPostActorTickHandle);
         WorldPostActorTickHandle.Reset();
     }
+
+    if (WorldCleanupHandle.IsValid())
+    {
+        FWorldDelegates::OnWorldCleanup.Remove(WorldCleanupHandle);
+        WorldCleanupHandle.Reset();
+    }
+
+    if (LevelAddedToWorldHandle.IsValid())
+    {
+        FWorldDelegates::LevelAddedToWorld.Remove(LevelAddedToWorldHandle);
+        LevelAddedToWorldHandle.Reset();
+    }
+
+    for (const TPair<TWeakObjectPtr<UWorld>, FDelegateHandle>& Pair : GActorSpawnHandles)
+    {
+        if (UWorld* World = Pair.Key.Get())
+        {
+            World->RemoveOnActorSpawnedHandler(Pair.Value);
+        }
+    }
+    GActorSpawnHandles.Empty();
+    GAutoRegisteredWorlds.Empty();
 
     GNativeEngine = nullptr;
     FMemory::Memzero(&GBridge, sizeof(GBridge));
@@ -128,7 +218,61 @@ void FMagnaundasoniRuntimeModule::OnWorldPostActorTick(
     // PIE spectator viewports, or editor-only ticks).
     if (!World || !World->IsGameWorld()) return;
 
+    EnsureWorldGeometryAutoRegistration(World);
     GBridge.Update(reinterpret_cast<MagEngineNative>(GNativeEngine), DeltaSeconds);
+}
+
+void FMagnaundasoniRuntimeModule::EnsureWorldGeometryAutoRegistration(UWorld* World)
+{
+    if (!World) return;
+
+    const TWeakObjectPtr<UWorld> WorldKey(World);
+    if (GAutoRegisteredWorlds.Contains(WorldKey)) return;
+
+    for (TActorIterator<AActor> ActorIt(World); ActorIt; ++ActorIt)
+    {
+        TryAutoAttachGeometryComponent(*ActorIt);
+    }
+
+    if (!GActorSpawnHandles.Contains(WorldKey))
+    {
+        const FDelegateHandle SpawnHandle = World->AddOnActorSpawnedHandler(
+            FOnActorSpawned::FDelegate::CreateRaw(this, &FMagnaundasoniRuntimeModule::OnActorSpawned));
+        GActorSpawnHandles.Add(WorldKey, SpawnHandle);
+    }
+
+    GAutoRegisteredWorlds.Add(WorldKey);
+}
+
+void FMagnaundasoniRuntimeModule::OnActorSpawned(AActor* Actor)
+{
+    TryAutoAttachGeometryComponent(Actor);
+}
+
+void FMagnaundasoniRuntimeModule::OnWorldCleanup(
+    UWorld* World, bool /*bSessionEnded*/, bool /*bCleanupResources*/)
+{
+    if (!World) return;
+
+    const TWeakObjectPtr<UWorld> WorldKey(World);
+    if (FDelegateHandle* SpawnHandle = GActorSpawnHandles.Find(WorldKey))
+    {
+        World->RemoveOnActorSpawnedHandler(*SpawnHandle);
+        GActorSpawnHandles.Remove(WorldKey);
+    }
+
+    GAutoRegisteredWorlds.Remove(WorldKey);
+}
+
+void FMagnaundasoniRuntimeModule::OnLevelAddedToWorld(ULevel* Level, UWorld* World)
+{
+    if (!Level || !World || !World->IsGameWorld()) return;
+
+    for (AActor* Actor : Level->Actors)
+    {
+        if (!Actor) continue;
+        TryAutoAttachGeometryComponent(Actor);
+    }
 }
 
 // ---------------------------------------------------------------------------

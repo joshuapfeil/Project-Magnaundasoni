@@ -13,6 +13,32 @@ DEFINE_LOG_CATEGORY_STATIC(LogMagGeometry, Log, All);
 
 static constexpr float kCmToM = 0.01f;
 
+namespace
+{
+UStaticMeshComponent* FindUsableStaticMeshComponent(const AActor* Owner)
+{
+    if (!Owner) return nullptr;
+
+    TInlineComponentArray<UStaticMeshComponent*> MeshComponents;
+    Owner->GetComponents<UStaticMeshComponent>(MeshComponents);
+
+    for (UStaticMeshComponent* MeshComponent : MeshComponents)
+    {
+        if (!MeshComponent) continue;
+
+        UStaticMesh* Mesh = MeshComponent->GetStaticMesh();
+        if (!Mesh) continue;
+
+        const FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
+        if (!RenderData || RenderData->LODResources.Num() == 0) continue;
+
+        return MeshComponent;
+    }
+
+    return nullptr;
+}
+} // namespace
+
 // ===========================================================================
 // UMagGeometryComponent
 // ===========================================================================
@@ -211,18 +237,16 @@ void UMagGeometryComponent::ResolveMaterial()
 // ---------------------------------------------------------------------------
 
 bool UMagGeometryComponent::ExtractMeshData(TArray<float>& OutVertices,
-                                             TArray<uint32>& OutIndices)
+                                              TArray<uint32>& OutIndices)
 {
-    if (!GetOwner()) return false;
-
-    UStaticMeshComponent* MeshComp =
-        GetOwner()->FindComponentByClass<UStaticMeshComponent>();
+    UStaticMeshComponent* MeshComp = FindUsableStaticMeshComponent(GetOwner());
     if (!MeshComp) return false;
 
     UStaticMesh* Mesh = MeshComp->GetStaticMesh();
-    if (!Mesh || !Mesh->GetRenderData()) return false;
+    const FStaticMeshRenderData* RenderData = Mesh ? Mesh->GetRenderData() : nullptr;
+    if (!RenderData || RenderData->LODResources.Num() == 0) return false;
 
-    const FStaticMeshLODResources& LOD = Mesh->GetRenderData()->LODResources[0];
+    const FStaticMeshLODResources& LOD = RenderData->LODResources[0];
 
     // ---- Vertex positions ----
     const FStaticMeshVertexBuffers& VBs = LOD.VertexBuffers;
@@ -267,8 +291,7 @@ void UMagGeometryComponent::PushTransformUpdate()
     MagEngine Engine = FMagnaundasoniRuntimeModule::GetNativeEngine();
     if (!Bridge || !Engine || !Bridge->GeometryUpdateTransform) return;
 
-    UStaticMeshComponent* MeshComp =
-        GetOwner() ? GetOwner()->FindComponentByClass<UStaticMeshComponent>() : nullptr;
+    UStaticMeshComponent* MeshComp = FindUsableStaticMeshComponent(GetOwner());
     if (!MeshComp) return;
 
     float Matrix[16];
