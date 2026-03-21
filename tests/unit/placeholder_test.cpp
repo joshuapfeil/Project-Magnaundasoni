@@ -309,8 +309,8 @@ TEST_CASE("Spatial config and HRTF controls round-trip through the C ABI", "[spa
     REQUIRE(roundTrip.speakerLayout == MAG_SPEAKERS_51);
     REQUIRE(roundTrip.maxBinauralSources == 4);
 
-    uint8_t fakeSofa[] = {1, 2, 3, 4};
-    REQUIRE(mag_set_hrtf_dataset(engine, fakeSofa, sizeof(fakeSofa)) == MAG_OK);
+    uint8_t testHrtfData[] = {1, 2, 3, 4};
+    REQUIRE(mag_set_hrtf_dataset(engine, testHrtfData, sizeof(testHrtfData)) == MAG_OK);
 
     MagSpatialBackendInfo backend{};
     REQUIRE(mag_get_spatial_backend_info(engine, &backend) == MAG_OK);

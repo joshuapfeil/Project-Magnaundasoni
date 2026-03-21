@@ -90,6 +90,7 @@ set(MAG_SPATIAL_HEADERS
     src/spatial/SpatialConfig.h
     src/spatial/HRTFDatabase.h
     src/spatial/BinauralConvolver.h
+    src/spatial/Quaternion.h
     src/spatial/SurroundPanner.h
 )
 
