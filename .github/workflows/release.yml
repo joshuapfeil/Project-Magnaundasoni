@@ -140,9 +140,17 @@ jobs:
   package-unreal:
     name: Package Unreal plugin
     runs-on: ubuntu-22.04
+    needs: build-native
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: dist/native
+          merge-multiple: true
 
       - name: Install zip
         run: |
@@ -209,14 +217,15 @@ jobs:
             | `magnaundasoni-native-windows-x64-*.zip` | Pre-built DLL + import library for Windows x64 |
             | `magnaundasoni-native-macos-arm64-*.zip` | Pre-built dylib for macOS Apple Silicon |
             | `magnaundasoni-unity-*.zip` | Unity Package Manager plugin (UPM) |
-            | `magnaundasoni-unreal-*.zip` | Unreal Engine 5 plugin source |
+            | `magnaundasoni-unreal-*.zip` | Unreal Engine 5 plugin ZIP with bundled headers + pre-built native libs |
 
             ### Installation
             See [RELEASE_PROCESS.md](https://github.com/${{ github.repository }}/blob/main/docs/RELEASE_PROCESS.md)
             for detailed installation instructions.
 
-            > ⚠️ Unreal binaries are **not** included in the Unreal zip — run Unreal Build Tool
-            > locally after dropping the plugin into your project's `Plugins/` folder.
+            > Unreal releases are packaged for drag-and-drop installation: extract `Plugin/`
+            > into your project's `Plugins/Magnaundasoni/` folder, then regenerate project
+            > files and build once so Unreal can produce the plugin `Binaries/` folder.
           draft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: release-assets/*.zip

@@ -202,13 +202,13 @@ The Unreal plugin lives in `unreal/Plugin/`.
 - Visual Studio 2022 with **Game Development with C++** workload (Windows)
   or Xcode 14+ (macOS)
 - The native `magnaundasoni` library must be built and placed in
-  `unreal/Plugin/Source/Magnaundasoni/ThirdParty/Magnaundasoni/<platform>/`.
+  `unreal/Plugin/Source/ThirdParty/Magnaundasoni/<platform>/`.
 
 ### Setup steps
 
 1. Build the native library (see [BUILD.md](../BUILD.md)).
 2. Copy the shared library into the plugin's
-   `Source/Magnaundasoni/ThirdParty/Magnaundasoni/<platform>/` directory.
+   `Source/ThirdParty/Magnaundasoni/<platform>/` directory.
 3. Right-click `unreal/Plugin/Magnaundasoni.uplugin` → **Generate Visual Studio
    Project Files** (Windows) or equivalent on macOS.
 4. Open the generated solution / workspace and build the `MagnaundasoniEditor`

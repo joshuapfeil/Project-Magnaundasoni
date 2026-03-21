@@ -47,25 +47,34 @@ MyProject/
         ├── Magnaundasoni.uplugin
         ├── Source/
         │   ├── Magnaundasoni/          (base module: native API bridge, engine lifecycle)
-        │   └── MagnaundasoniRuntime/   (runtime module: Actor Components for use in game)
-        └── Binaries/
-            ├── Win64/magnaundasoni.dll
-            ├── Linux/libmagnaundasoni.so
-            └── Mac/libmagnaundasoni.dylib
+        │   ├── MagnaundasoniRuntime/   (runtime module: Actor Components for use in game)
+        │   └── ThirdParty/Magnaundasoni/
+        │       ├── include/Magnaundasoni.h
+        │       ├── Win64/magnaundasoni.dll + magnaundasoni.lib
+        │       ├── Linux/libmagnaundasoni.so
+        │       └── Mac/libmagnaundasoni.dylib
+        └── Binaries/                   (generated on first Unreal build)
 ```
 
 1. Download the latest Magnaundasoni Unreal plugin from the
    [Releases page](https://github.com/joshuapfeil/Project-Magnaundasoni/releases).
-2. Copy the `unreal/Plugin/` folder from the repo into your project's
-   `Plugins/Magnaundasoni/` directory (see structure above).
-3. Place the compiled native library binaries in the `Binaries/<Platform>/`
-   folder (built from `native/CMakeLists.txt`).
-4. Regenerate project files and rebuild in your IDE.
+2. Extract the archive; the top-level directory is `Plugin/`.
+3. Copy `Plugin/` into your project's `Plugins/Magnaundasoni/` directory
+   (see structure above).
+4. Right-click your `.uproject` file and regenerate project files.
+5. Build the project once in your IDE or via Unreal Build Tool. The bundled
+   ThirdParty libraries are picked up automatically, and Unreal generates the
+   plugin's `Binaries/` folder during that build.
 
-### Build.cs Configuration
+No edits to your game's `.Build.cs` are required just to install or enable the
+plugin.
 
-In your game module's `.Build.cs`, add the **MagnaundasoniRuntime** module
-(which pulls in the base module automatically):
+### Optional C++ module dependency
+
+If your own C++ game module needs to include Magnaundasoni headers or directly
+reference `UMagSourceComponent`, `UMagListenerComponent`, `UMagGeometryComponent`,
+or other plugin types, add the **MagnaundasoniRuntime** module (which pulls in
+the base module automatically):
 
 ```csharp
 PublicDependencyModuleNames.AddRange(new string[]
