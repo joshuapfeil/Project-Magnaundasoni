@@ -6,7 +6,7 @@
 namespace magnaundasoni {
 
 void BinauralConvolver::setHeadPose(const float quaternion[4]) {
-    normaliseQuaternion(quaternion, quaternion_);
+    normalizeQuaternion(quaternion, quaternion_);
 }
 
 Vec3 BinauralConvolver::rotateToHeadSpace(const Vec3& worldDirection) const {

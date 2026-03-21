@@ -15,7 +15,7 @@ inline Vec3 rotateByQuaternion(const Vec3& v, const float q[4]) {
            2.0f * s * u.cross(v);
 }
 
-inline bool normaliseQuaternion(const float in[4], float out[4]) {
+inline bool normalizeQuaternion(const float in[4], float out[4]) {
     if (!in || !out) return false;
     float lenSq = in[0] * in[0] + in[1] * in[1] +
                   in[2] * in[2] + in[3] * in[3];

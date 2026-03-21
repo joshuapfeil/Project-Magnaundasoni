@@ -373,7 +373,7 @@ MagStatus mag_set_listener_head_pose(MagEngine engine,
     if (!engine || !quaternion) return MAG_INVALID_PARAM;
 
     float normalised[4];
-    if (!normaliseQuaternion(quaternion, normalised)) return MAG_INVALID_PARAM;
+    if (!normalizeQuaternion(quaternion, normalised)) return MAG_INVALID_PARAM;
 
     const ListenerEntry* existing = engine->scene.getListener(listenerID);
     if (!existing) return MAG_ERROR;

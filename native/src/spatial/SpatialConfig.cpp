@@ -94,8 +94,15 @@ bool isValidHRTFPreset(MagHRTFPreset preset) {
 bool isValidSpeakerLayout(const MagSpeakerLayout* layout) {
     if (!layout) return false;
     if (layout->channelCount == 0 || layout->channelCount > MAG_MAX_SPEAKERS) return false;
-    return layout->preset == MAG_SPEAKERS_CUSTOM ||
-           layout->channelCount == static_cast<uint32_t>(layout->preset);
+    switch (layout->preset) {
+        case MAG_SPEAKERS_CUSTOM: return true;
+        case MAG_SPEAKERS_STEREO: return layout->channelCount == 2;
+        case MAG_SPEAKERS_QUAD:   return layout->channelCount == 4;
+        case MAG_SPEAKERS_51:     return layout->channelCount == 6;
+        case MAG_SPEAKERS_71:     return layout->channelCount == 8;
+        case MAG_SPEAKERS_714:    return layout->channelCount == 12;
+        default:                  return false;
+    }
 }
 
 bool isSurroundMode(MagSpatialMode mode) {
