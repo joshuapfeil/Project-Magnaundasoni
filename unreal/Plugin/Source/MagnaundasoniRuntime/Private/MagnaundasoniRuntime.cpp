@@ -30,15 +30,16 @@ namespace
 {
 void TryAutoAttachGeometryComponent(AActor* Actor)
 {
-    if (!Actor || !Actor->GetWorld() || !Actor->GetWorld()->IsGameWorld()) return;
+    UWorld* World = Actor ? Actor->GetWorld() : nullptr;
+    if (!World || !World->IsGameWorld()) return;
     if (Actor->HasAnyFlags(RF_ClassDefaultObject)) return;
     if (Actor->FindComponentByClass<UMagGeometryComponent>()) return;
 
-    TInlineComponentArray<UStaticMeshComponent*> MeshComponents(Actor);
-    Actor->GetComponents(MeshComponents);
+    TInlineComponentArray<UStaticMeshComponent*> MeshComponentsArray;
+    Actor->GetComponents<UStaticMeshComponent>(MeshComponentsArray);
 
     UStaticMeshComponent* MeshComponent = nullptr;
-    for (UStaticMeshComponent* Candidate : MeshComponents)
+    for (UStaticMeshComponent* Candidate : MeshComponentsArray)
     {
         if (Candidate && Candidate->GetStaticMesh())
         {
@@ -167,7 +168,7 @@ void FMagnaundasoniRuntimeModule::ShutdownModule()
         LevelAddedToWorldHandle.Reset();
     }
 
-    for (TPair<TWeakObjectPtr<UWorld>, FDelegateHandle>& Pair : GActorSpawnHandles)
+    for (const TPair<TWeakObjectPtr<UWorld>, FDelegateHandle>& Pair : GActorSpawnHandles)
     {
         if (UWorld* World = Pair.Key.Get())
         {
@@ -248,11 +249,15 @@ void FMagnaundasoniRuntimeModule::OnWorldCleanup(
     GAutoRegisteredWorlds.Remove(WorldKey);
 }
 
-void FMagnaundasoniRuntimeModule::OnLevelAddedToWorld(ULevel* /*Level*/, UWorld* World)
+void FMagnaundasoniRuntimeModule::OnLevelAddedToWorld(ULevel* Level, UWorld* World)
 {
-    if (!World || !World->IsGameWorld()) return;
+    if (!Level || !World || !World->IsGameWorld()) return;
 
-    GAutoRegisteredWorlds.Remove(TWeakObjectPtr<UWorld>(World));
+    for (AActor* Actor : Level->Actors)
+    {
+        if (!Actor) continue;
+        TryAutoAttachGeometryComponent(Actor);
+    }
 }
 
 // ---------------------------------------------------------------------------
