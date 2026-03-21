@@ -121,14 +121,14 @@ specularly reflected).  Higher values = more diffuse scattering.
 | **Metal**    | 0.20      | MEDIUM          | 0.00         |
 | **Wood**     | 0.40      | MEDIUM          | 0.02         |
 | **Fabric**   | 0.80      | THIN            | 0.10         |
-| **Rock**     | 0.60      | SOLID           | 0.00         |
-| **Dirt**     | 0.90      | SOLID           | 0.01         |
+| **Rock**     | 0.60      | THICK           | 0.00         |
+| **Dirt**     | 0.90      | THICK           | 0.01         |
 | **Grass**    | 0.95      | THIN            | 0.05         |
 | **Carpet**   | 0.85      | THIN            | 0.08         |
 | **Glass**    | 0.10      | THIN            | 0.03         |
-| **Concrete** | 0.30      | SOLID           | 0.00         |
+| **Concrete** | 0.30      | THICK           | 0.00         |
 | **Plaster**  | 0.35      | MEDIUM          | 0.01         |
-| **Water**    | 0.05      | SOLID           | 0.50         |
+| **Water**    | 0.05      | THICK           | 0.50         |
 
 ### Field Descriptions
 

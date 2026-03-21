@@ -309,9 +309,9 @@ namespace Magnaundasoni
     {
         public MagSpeakerLayoutPreset preset;
         public uint channelCount;
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 12)]
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = MagConstants.MaxSpeakers)]
         public float[] azimuthDegrees;
-        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 12)]
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = MagConstants.MaxSpeakers)]
         public float[] elevationDegrees;
     }
 
