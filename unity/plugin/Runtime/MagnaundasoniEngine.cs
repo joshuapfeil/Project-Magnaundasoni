@@ -28,7 +28,11 @@ namespace Magnaundasoni
             {
                 if (_instance == null)
                 {
+#if UNITY_2022_2_OR_NEWER
+                    _instance = FindFirstObjectByType<MagnaundasoniEngine>();
+#else
                     _instance = FindObjectOfType<MagnaundasoniEngine>();
+#endif
                     if (_instance == null)
                     {
                         var go = new GameObject("[MagnaundasoniEngine]");

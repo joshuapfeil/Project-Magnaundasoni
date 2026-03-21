@@ -54,26 +54,6 @@ namespace Magnaundasoni
             MagnaundasoniMaterialAuditorWindow.ShowWindow();
         }
 
-        // ----- Create Acoustic Material Asset ------------------------------
-        [MenuItem("Assets/Create/Magnaundasoni/Acoustic Material")]
-        public static void CreateAcousticMaterialAsset()
-        {
-            var mat = ScriptableObject.CreateInstance<MagnaundasoniMaterial>();
-            mat.LoadPreset("General");
-
-            string path = AssetDatabase.GetAssetPath(Selection.activeObject);
-            if (string.IsNullOrEmpty(path))
-                path = "Assets";
-            else if (System.IO.Path.GetExtension(path) != "")
-                path = System.IO.Path.GetDirectoryName(path);
-
-            string assetPath = AssetDatabase.GenerateUniqueAssetPath(
-                $"{path}/NewAcousticMaterial.asset");
-            AssetDatabase.CreateAsset(mat, assetPath);
-            AssetDatabase.SaveAssets();
-            EditorUtility.FocusProjectWindow();
-            Selection.activeObject = mat;
-        }
     }
 
     // -----------------------------------------------------------------------
@@ -139,7 +119,11 @@ namespace Magnaundasoni
         private void ApplyLayerMaterials()
         {
             int applied = 0;
-            var allGeometry = FindObjectsOfType<MagnaundasoniGeometry>();
+#if UNITY_2022_2_OR_NEWER
+            var allGeometry = Object.FindObjectsByType<MagnaundasoniGeometry>(FindObjectsSortMode.None);
+#else
+            var allGeometry = Object.FindObjectsOfType<MagnaundasoniGeometry>();
+#endif
             foreach (var geo in allGeometry)
             {
                 int layer = geo.gameObject.layer;
@@ -179,7 +163,11 @@ namespace Magnaundasoni
             EditorGUILayout.LabelField("Acoustic Material Auditor", EditorStyles.boldLabel);
             EditorGUILayout.Space(4);
 
-            var allMeshRenderers = FindObjectsOfType<MeshRenderer>();
+#if UNITY_2022_2_OR_NEWER
+            var allMeshRenderers = Object.FindObjectsByType<MeshRenderer>(FindObjectsSortMode.None);
+#else
+            var allMeshRenderers = Object.FindObjectsOfType<MeshRenderer>();
+#endif
             int total = allMeshRenderers.Length;
             int withMaterial = 0;
             int withoutMaterial = 0;

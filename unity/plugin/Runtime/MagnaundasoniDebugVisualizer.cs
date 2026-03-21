@@ -84,7 +84,11 @@ namespace Magnaundasoni
             GL.PushMatrix();
             GL.MultMatrix(Matrix4x4.identity);
 
-            var sources = FindObjectsOfType<MagnaundasoniSource>();
+#if UNITY_2022_2_OR_NEWER
+            var sources = Object.FindObjectsByType<MagnaundasoniSource>(FindObjectsSortMode.None);
+#else
+            var sources = Object.FindObjectsOfType<MagnaundasoniSource>();
+#endif
             foreach (var source in sources)
             {
                 if (!source.IsRegistered) continue;
@@ -247,7 +251,11 @@ namespace Magnaundasoni
             var listener = MagnaundasoniListener.ActiveListener;
             if (listener == null) return;
 
-            var sources = FindObjectsOfType<MagnaundasoniSource>();
+#if UNITY_2022_2_OR_NEWER
+            var sources = Object.FindObjectsByType<MagnaundasoniSource>(FindObjectsSortMode.None);
+#else
+            var sources = Object.FindObjectsOfType<MagnaundasoniSource>();
+#endif
             foreach (var source in sources)
             {
                 if (!source.IsRegistered) continue;
