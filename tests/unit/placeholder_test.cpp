@@ -243,6 +243,129 @@ TEST_CASE("mag_set_quality accepts all valid levels", "[engine][quality]") {
     mag_engine_destroy(engine);
 }
 
+TEST_CASE("Spatial config defaults to auto with stereo layout", "[spatial][config]") {
+    MagEngine engine = nullptr;
+    MagEngineConfig cfg = defaultConfig();
+    REQUIRE(mag_engine_create(&cfg, &engine) == MAG_OK);
+
+    MagSpatialConfig spatial{};
+    REQUIRE(mag_get_spatial_config(engine, &spatial) == MAG_OK);
+    REQUIRE(spatial.mode == MAG_SPATIAL_AUTO);
+    REQUIRE(spatial.speakerLayout == MAG_SPEAKERS_STEREO);
+    REQUIRE(spatial.hrtfPreset == MAG_HRTF_PRESET_DEFAULT_KEMAR);
+    REQUIRE(spatial.maxBinauralSources == 16);
+
+    MagSpatialBackendInfo backend{};
+    REQUIRE(mag_get_spatial_backend_info(engine, &backend) == MAG_OK);
+    REQUIRE(backend.type == MAG_SPATIAL_BACKEND_BUILTIN_BINAURAL);
+    REQUIRE(backend.outputChannels == 2);
+    REQUIRE(backend.hasCustomHRTFDataset == 0);
+
+    REQUIRE(mag_engine_destroy(engine) == MAG_OK);
+}
+
+TEST_CASE("Spatial config and HRTF controls round-trip through the C ABI", "[spatial][abi]") {
+    MagEngine engine = nullptr;
+    MagEngineConfig cfg = defaultConfig();
+    REQUIRE(mag_engine_create(&cfg, &engine) == MAG_OK);
+
+    MagSpatialConfig spatial{};
+    spatial.mode = MAG_SPATIAL_SURROUND_51;
+    spatial.speakerLayout = MAG_SPEAKERS_STEREO;
+    spatial.hrtfPreset = MAG_HRTF_PRESET_DEFAULT_KEMAR;
+    spatial.maxBinauralSources = 4;
+    REQUIRE(mag_set_spatial_config(engine, &spatial) == MAG_OK);
+
+    MagSpatialConfig roundTrip{};
+    REQUIRE(mag_get_spatial_config(engine, &roundTrip) == MAG_OK);
+    REQUIRE(roundTrip.mode == MAG_SPATIAL_SURROUND_51);
+    REQUIRE(roundTrip.speakerLayout == MAG_SPEAKERS_51);
+    REQUIRE(roundTrip.maxBinauralSources == 4);
+
+    MagSpatialConfig invalidSpatial = spatial;
+    invalidSpatial.speakerLayout = static_cast<MagSpeakerLayoutPreset>(999);
+    REQUIRE(mag_set_spatial_config(engine, &invalidSpatial) == MAG_INVALID_PARAM);
+
+    uint8_t testHrtfData[] = {1, 2, 3, 4};
+    REQUIRE(mag_set_hrtf_dataset(engine, testHrtfData, sizeof(testHrtfData)) == MAG_OK);
+
+    MagSpatialBackendInfo backend{};
+    REQUIRE(mag_get_spatial_backend_info(engine, &backend) == MAG_OK);
+    REQUIRE(backend.type == MAG_SPATIAL_BACKEND_BUILTIN_SURROUND);
+    REQUIRE(backend.outputChannels == 6);
+    REQUIRE(backend.hasCustomHRTFDataset == 1);
+
+    REQUIRE(mag_set_hrtf_preset(engine, MAG_HRTF_PRESET_DEFAULT_KEMAR) == MAG_OK);
+    REQUIRE(mag_get_spatial_backend_info(engine, &backend) == MAG_OK);
+    REQUIRE(backend.hasCustomHRTFDataset == 0);
+
+    REQUIRE(mag_engine_destroy(engine) == MAG_OK);
+}
+
+TEST_CASE("Listener head pose API validates listener IDs and quaternion data", "[spatial][headpose]") {
+    MagEngine engine = nullptr;
+    MagEngineConfig cfg = defaultConfig();
+    REQUIRE(mag_engine_create(&cfg, &engine) == MAG_OK);
+
+    MagListenerDesc listener{};
+    listener.forward[2] = 1.0f;
+    listener.up[1] = 1.0f;
+    MagListenerID listenerID = 0;
+    REQUIRE(mag_listener_register(engine, &listener, &listenerID) == MAG_OK);
+
+    const float yaw90Quat[4] = {0.0f, 0.70710677f, 0.0f, 0.70710677f};
+    REQUIRE(mag_set_listener_head_pose(engine, listenerID, yaw90Quat) == MAG_OK);
+    REQUIRE(mag_set_listener_head_pose(engine, listenerID + 99, yaw90Quat) == MAG_ERROR);
+
+    const float invalidQuat[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    REQUIRE(mag_set_listener_head_pose(engine, listenerID, invalidQuat) == MAG_INVALID_PARAM);
+
+    REQUIRE(mag_engine_destroy(engine) == MAG_OK);
+}
+
+TEST_CASE("Speaker layout API validates presets and custom channel counts", "[spatial][speaker-layout]") {
+    MagEngine engine = nullptr;
+    MagEngineConfig cfg = defaultConfig();
+    REQUIRE(mag_engine_create(&cfg, &engine) == MAG_OK);
+
+    MagSpeakerLayout surround51{};
+    surround51.preset = MAG_SPEAKERS_51;
+    surround51.channelCount = 6;
+    surround51.azimuthDegrees[0] = -30.0f;
+    surround51.azimuthDegrees[1] = 30.0f;
+    surround51.azimuthDegrees[2] = 0.0f;
+    surround51.azimuthDegrees[3] = 180.0f;
+    surround51.azimuthDegrees[4] = -110.0f;
+    surround51.azimuthDegrees[5] = 110.0f;
+    REQUIRE(mag_set_speaker_layout(engine, &surround51) == MAG_OK);
+
+    MagSpatialConfig surroundConfig{};
+    surroundConfig.mode = MAG_SPATIAL_SURROUND_51;
+    surroundConfig.speakerLayout = MAG_SPEAKERS_51;
+    surroundConfig.hrtfPreset = MAG_HRTF_PRESET_DEFAULT_KEMAR;
+    surroundConfig.maxBinauralSources = 8;
+    REQUIRE(mag_set_spatial_config(engine, &surroundConfig) == MAG_OK);
+
+    MagSpatialBackendInfo backend{};
+    REQUIRE(mag_get_spatial_backend_info(engine, &backend) == MAG_OK);
+    REQUIRE(backend.type == MAG_SPATIAL_BACKEND_BUILTIN_SURROUND);
+    REQUIRE(backend.outputChannels == 6);
+
+    MagSpeakerLayout invalidLayout = surround51;
+    invalidLayout.channelCount = 5;
+    REQUIRE(mag_set_speaker_layout(engine, &invalidLayout) == MAG_INVALID_PARAM);
+
+    MagSpeakerLayout customLayout{};
+    customLayout.preset = MAG_SPEAKERS_CUSTOM;
+    customLayout.channelCount = 3;
+    customLayout.azimuthDegrees[0] = -30.0f;
+    customLayout.azimuthDegrees[1] = 30.0f;
+    customLayout.azimuthDegrees[2] = 180.0f;
+    REQUIRE(mag_set_speaker_layout(engine, &customLayout) == MAG_OK);
+
+    REQUIRE(mag_engine_destroy(engine) == MAG_OK);
+}
+
 // ---------------------------------------------------------------------------
 // Band-math placeholder coverage
 // ---------------------------------------------------------------------------

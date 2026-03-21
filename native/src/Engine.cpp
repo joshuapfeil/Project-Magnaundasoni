@@ -13,8 +13,12 @@
 #include "core/SpatialGrid.h"
 #include "core/ThreadPool.h"
 #include "core/Types.h"
+#include "spatial/HRTFDatabase.h"
+#include "spatial/Quaternion.h"
+#include "spatial/SpatialConfig.h"
 
 #include <atomic>
+#include <array>
 #include <chrono>
 #include <cstring>
 #include <memory>
@@ -48,6 +52,12 @@ struct MagEngine_T {
     // Cached results (source,listener) -> result
     std::mutex resultMutex;
     std::unordered_map<uint64_t, MagAcousticResult> cachedResults;
+
+    std::mutex spatialMutex;
+    MagSpatialConfig spatialConfig = defaultSpatialConfig();
+    MagSpeakerLayout speakerLayout = defaultSpeakerLayout(MAG_SPEAKERS_STEREO);
+    HRTFDatabase hrtfDatabase;
+    std::unordered_map<uint32_t, std::array<float, 4>> listenerHeadPoses;
 };
 
 /* ------------------------------------------------------------------ */
@@ -294,7 +304,7 @@ MagStatus mag_listener_unregister(MagEngine engine, MagListenerID id) {
 }
 
 MagStatus mag_listener_update(MagEngine engine, MagListenerID id,
-                              const MagListenerDesc* desc) {
+                               const MagListenerDesc* desc) {
     if (!engine || !desc) return MAG_INVALID_PARAM;
 
     ListenerEntry lis;
@@ -303,6 +313,100 @@ MagStatus mag_listener_update(MagEngine engine, MagListenerID id,
     lis.up       = toVec3(desc->up);
 
     return engine->scene.updateListener(id, lis) ? MAG_OK : MAG_ERROR;
+}
+
+/* ------------------------------------------------------------------ */
+/* Spatialisation                                                     */
+/* ------------------------------------------------------------------ */
+MagStatus mag_set_spatial_config(MagEngine engine,
+                                 const MagSpatialConfig* config) {
+    if (!engine || !config) return MAG_INVALID_PARAM;
+    if (!isValidSpatialMode(config->mode) ||
+        !isValidHRTFPreset(config->hrtfPreset) ||
+        !isValidSpeakerLayoutPreset(config->speakerLayout)) {
+        return MAG_INVALID_PARAM;
+    }
+
+    std::lock_guard lock(engine->spatialMutex);
+    MagSpeakerLayoutPreset layoutPreset = speakerLayoutForMode(config->mode,
+                                                               config->speakerLayout);
+    MagSpatialConfig sanitizedConfig = *config;
+    sanitizedConfig.speakerLayout = layoutPreset;
+    if (sanitizedConfig.maxBinauralSources == 0) {
+        sanitizedConfig.maxBinauralSources = 16;
+    }
+    engine->spatialConfig = sanitizedConfig;
+    if (layoutPreset != MAG_SPEAKERS_CUSTOM) {
+        engine->speakerLayout = defaultSpeakerLayout(layoutPreset);
+    } else if (engine->speakerLayout.channelCount == 0) {
+        engine->speakerLayout = defaultSpeakerLayout(MAG_SPEAKERS_STEREO);
+    }
+    return MAG_OK;
+}
+
+MagStatus mag_get_spatial_config(MagEngine engine,
+                                 MagSpatialConfig* outConfig) {
+    if (!engine || !outConfig) return MAG_INVALID_PARAM;
+    std::lock_guard lock(engine->spatialMutex);
+    *outConfig = engine->spatialConfig;
+    return MAG_OK;
+}
+
+MagStatus mag_set_hrtf_dataset(MagEngine engine,
+                               const void* sofaData,
+                               size_t sofaSize) {
+    if (!engine || !sofaData || sofaSize == 0) return MAG_INVALID_PARAM;
+    std::lock_guard lock(engine->spatialMutex);
+    return engine->hrtfDatabase.setCustomDataset(sofaData, sofaSize)
+               ? MAG_OK
+               : MAG_ERROR;
+}
+
+MagStatus mag_set_hrtf_preset(MagEngine engine, MagHRTFPreset preset) {
+    if (!engine || !isValidHRTFPreset(preset)) return MAG_INVALID_PARAM;
+    std::lock_guard lock(engine->spatialMutex);
+    engine->spatialConfig.hrtfPreset = preset;
+    engine->hrtfDatabase.setPreset(preset);
+    return MAG_OK;
+}
+
+MagStatus mag_set_listener_head_pose(MagEngine engine,
+                                     uint32_t listenerID,
+                                     const float quaternion[4]) {
+    if (!engine || !quaternion) return MAG_INVALID_PARAM;
+
+    float normalised[4];
+    if (!normalizeQuaternion(quaternion, normalised)) return MAG_INVALID_PARAM;
+
+    if (!engine->scene.getListener(listenerID)) return MAG_ERROR;
+
+    std::lock_guard lock(engine->spatialMutex);
+    // Head pose is tracked separately from the listener basis configured via
+    // mag_listener_register/mag_listener_update so head-tracking stays a
+    // relative spatialization input instead of clobbering world orientation.
+    engine->listenerHeadPoses[listenerID] = {
+        normalised[0], normalised[1], normalised[2], normalised[3]
+    };
+    return MAG_OK;
+}
+
+MagStatus mag_set_speaker_layout(MagEngine engine,
+                                 const MagSpeakerLayout* layout) {
+    if (!engine || !isValidSpeakerLayout(layout)) return MAG_INVALID_PARAM;
+    std::lock_guard lock(engine->spatialMutex);
+    engine->speakerLayout = *layout;
+    engine->spatialConfig.speakerLayout = layout->preset;
+    return MAG_OK;
+}
+
+MagStatus mag_get_spatial_backend_info(MagEngine engine,
+                                       MagSpatialBackendInfo* outInfo) {
+    if (!engine || !outInfo) return MAG_INVALID_PARAM;
+    std::lock_guard lock(engine->spatialMutex);
+    *outInfo = resolveSpatialBackend(engine->spatialConfig,
+                                     engine->speakerLayout,
+                                     engine->hrtfDatabase.hasCustomDataset());
+    return MAG_OK;
 }
 
 /* ------------------------------------------------------------------ */
