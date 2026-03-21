@@ -226,7 +226,8 @@ gh release create v1.2.3 \
 4. Right-click your `.uproject` file → *Generate Visual Studio project files*.
 5. Build the project once; UBT will compile the plugin using the bundled
    headers and the pre-built native library already staged under
-   `Plugins/Magnaundasoni/Source/ThirdParty/Magnaundasoni/<Platform>/`.
+   `Plugins/Magnaundasoni/Source/ThirdParty/Magnaundasoni/Win64`, `Linux`, or
+   `Mac`, depending on the Unreal target platform.
 6. Enable the plugin in the Unreal Editor if it is not already enabled by
    default.
 

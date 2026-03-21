@@ -114,7 +114,6 @@ bundle_native_zip() {
 import os
 import shutil
 import sys
-import tempfile
 import zipfile
 
 zip_path, output_root = sys.argv[1:3]
@@ -143,21 +142,17 @@ else:
     )
     sys.exit(0)
 
-temp_dir = tempfile.mkdtemp(prefix="magnaundasoni-native-")
-try:
-    with zipfile.ZipFile(zip_path) as archive:
-        archive.extractall(temp_dir)
-
-    target_dir = os.path.join(output_root, platform_dir)
-    os.makedirs(target_dir, exist_ok=True)
-
+with zipfile.ZipFile(zip_path) as archive:
     missing = []
     for source_rel_path, target_name in files_to_copy.items():
-        source_path = os.path.join(temp_dir, source_rel_path)
-        if not os.path.isfile(source_path):
+        try:
+            with archive.open(source_rel_path) as src:
+                target_dir = os.path.join(output_root, platform_dir)
+                os.makedirs(target_dir, exist_ok=True)
+                with open(os.path.join(target_dir, target_name), "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+        except KeyError:
             missing.append(source_rel_path)
-            continue
-        shutil.copy2(source_path, os.path.join(target_dir, target_name))
 
     if missing:
         print(
@@ -165,8 +160,6 @@ try:
             file=sys.stderr,
         )
         sys.exit(1)
-finally:
-    shutil.rmtree(temp_dir)
 PY
     then
         echo "ERROR: Failed to bundle native archive: $1" >&2

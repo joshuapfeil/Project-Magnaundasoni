@@ -30,7 +30,7 @@ public class Magnaundasoni : ModuleRules
         // Source/ThirdParty/Magnaundasoni/include/.  During repository development
         // the headers live in the repo's native/include directory.  Check for the
         // bundled path first so packaged releases work out of the box.
-        string BundledIncludeDir = Path.Combine(ModuleDirectory, "ThirdParty", "Magnaundasoni", "include");
+        string BundledIncludeDir = Path.Combine(ModuleDirectory, "..", "ThirdParty", "Magnaundasoni", "include");
         string RepoNativeDir     = Path.Combine(ModuleDirectory, "..", "..", "..", "..", "native");
         string IncludeDir = Directory.Exists(BundledIncludeDir)
             ? BundledIncludeDir
@@ -41,7 +41,7 @@ public class Magnaundasoni : ModuleRules
         // In development builds the libraries live in native/build/.
         // Packaged distributions should place pre-built libraries in
         // Source/ThirdParty/Magnaundasoni/<Platform>/.
-        string BundledLibDir = Path.Combine(ModuleDirectory, "ThirdParty", "Magnaundasoni");
+        string BundledLibDir = Path.Combine(ModuleDirectory, "..", "ThirdParty", "Magnaundasoni");
         string DevLibDir     = Path.Combine(RepoNativeDir, "build");
 
         if (Target.Platform == UnrealTargetPlatform.Win64)
