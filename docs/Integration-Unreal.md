@@ -61,8 +61,15 @@ MyProject/
 3. If you are using the precompiled release ZIP, enable the plugin in the
    editor and restart when prompted. No game-side C++ module is required.
 4. If you are installing from a source checkout instead of a release ZIP, copy
-   the native library into `Source/ThirdParty/Magnaundasoni/<Platform>/`,
-   regenerate project files, and build from a C++-capable toolchain.
+   the platform-specific native libraries into
+   `Source/ThirdParty/Magnaundasoni/<Platform>/`:
+
+   - **Win64:** `magnaundasoni.dll` **and** `magnaundasoni.lib`
+   - **Linux:** `libmagnaundasoni.so`
+   - **Mac:** `libmagnaundasoni.dylib`
+
+   After copying the appropriate files, regenerate project files and build
+   from a C++-capable toolchain.
 
 ### Blueprint-only projects
 

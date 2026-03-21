@@ -111,8 +111,7 @@ copy_native_runtime() {
         if [ ! -f "$dst" ]; then
             cp "$src" "$dst"
             if [ -n "$COPIED_BINARIES" ]; then
-                COPIED_BINARIES="${COPIED_BINARIES}
-$dst"
+                COPIED_BINARIES="$(printf '%s\n%s' "$COPIED_BINARIES" "$dst")"
             else
                 COPIED_BINARIES="$dst"
             fi
