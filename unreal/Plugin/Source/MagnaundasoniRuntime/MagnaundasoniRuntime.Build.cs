@@ -18,6 +18,7 @@ public class MagnaundasoniRuntime : ModuleRules
     public MagnaundasoniRuntime(ReadOnlyTargetRules Target) : base(Target)
     {
         PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
+        PrecompileForTargets = PrecompileTargetsType.Any;
 
         PublicDependencyModuleNames.AddRange(new string[]
         {

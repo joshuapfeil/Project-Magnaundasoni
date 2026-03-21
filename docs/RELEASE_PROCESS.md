@@ -154,9 +154,11 @@ Add or update the corresponding `.meta` files if you edit these paths.
 
 **Unreal** — The Unreal plugin ZIP already includes native headers under
 `Plugin/Source/ThirdParty/Magnaundasoni/include/` (bundled by
-`package-unreal.sh`).  To add pre-built native libraries for a specific
-platform, extract the native ZIP for that platform and copy the library file
-into the matching subdirectory inside the plugin:
+`package-unreal.sh`). To make the release usable from Blueprint-only projects,
+also stage any precompiled plugin and native runtime binaries under
+`Plugin/Binaries/<Platform>/` before packaging. For source-based fallback
+builds, copy the native library files into the matching `Source/ThirdParty`
+subdirectory inside the plugin:
 
 ```
 Plugin/Source/ThirdParty/Magnaundasoni/Win64/magnaundasoni.dll
@@ -166,7 +168,8 @@ Plugin/Source/ThirdParty/Magnaundasoni/Mac/libmagnaundasoni.dylib
 ```
 
 `Magnaundasoni.Build.cs` automatically detects these paths and uses them
-instead of the repo-relative `native/build/` path.
+instead of the repo-relative `native/build/` path, while `package-unreal.sh`
+keeps any pre-staged `Plugin/Binaries/` payload in the release ZIP.
 
 ### Step 4 — Package the Unity plugin
 
@@ -223,17 +226,21 @@ gh release create v1.2.3 \
 1. Download `magnaundasoni-unreal-<ver>.zip`.
 2. Extract it; the top-level directory is `Plugin/`.
 3. Copy `Plugin/` into your project's `Plugins/Magnaundasoni/` folder.
-4. Download the native ZIP for your target platform and copy the library file
-   into `Plugins/Magnaundasoni/Source/ThirdParty/Magnaundasoni/<Platform>/`
+4. If the release ZIP already contains `Plugins/Magnaundasoni/Binaries/<Platform>/`,
+   enable the plugin and restart the editor. Blueprint-only projects can use
+   that precompiled package directly.
+5. If you are building the plugin from source instead, download the native ZIP
+   for your target platform and copy the library file into
+   `Plugins/Magnaundasoni/Source/ThirdParty/Magnaundasoni/<Platform>/`
    (see [Step 3](#step-3--optional-inject-native-binaries-into-unityunreal-plugin-trees)
-   for exact filenames).  `Magnaundasoni.Build.cs` picks up these files
+   for exact filenames). `Magnaundasoni.Build.cs` picks up these files
    automatically.
-5. Right-click your `.uproject` file → *Generate Visual Studio project files*.
-6. Build the project; UBT will compile the plugin using the bundled headers
+6. Right-click your `.uproject` file → *Generate Visual Studio project files*.
+7. Build the project; UBT will compile the plugin using the bundled headers
    and the pre-built library you placed in the ThirdParty directory.
 
-> If you skip step 4 (no pre-built library), UBT will look for the native
-> library in the development tree (`native/build/`).  This path only exists
+> If you skip step 5 (no pre-built library), UBT will look for the native
+> library in the development tree (`native/build/`). This path only exists
 > when building from within the repository.
 
 ---
