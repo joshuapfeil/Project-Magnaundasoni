@@ -50,12 +50,59 @@ namespace Magnaundasoni
         Critical = 3
     }
 
+    public enum MagHRTFPreset : int
+    {
+        DefaultKEMAR = 0
+    }
+
+    public enum MagSpeakerLayoutPreset : int
+    {
+        Custom = 0,
+        Stereo = 2,
+        Quad   = 4,
+        Surround51 = 6,
+        Surround71 = 8,
+        Surround714 = 12
+    }
+
+    public enum MagSpatialBackendType : int
+    {
+        Passthrough     = 0,
+        BuiltinBinaural = 1,
+        BuiltinSurround = 2,
+        WindowsSonic    = 3,
+        DolbyAtmos      = 4,
+        SteamAudio      = 5,
+        MetaXR          = 6,
+        OpenXR          = 7,
+        CoreAudio       = 8
+    }
+
+    public enum MagSpatialMode : int
+    {
+        Auto            = 0,
+        Passthrough     = 1,
+        Binaural        = 2,
+        SurroundStereo  = 3,
+        SurroundQuad    = 4,
+        Surround51      = 5,
+        Surround71      = 6,
+        Surround714     = 7,
+        WindowsSonic    = 8,
+        DolbyAtmos      = 9,
+        SteamAudio      = 10,
+        MetaXR          = 11,
+        OpenXR          = 12,
+        CoreAudio       = 13
+    }
+
     // ------------------------------------------------------------------
     // Constants
     // ------------------------------------------------------------------
     public static class MagConstants
     {
         public const int MaxBands = 8;
+        public const int MaxSpeakers = 12;
     }
 
     // ------------------------------------------------------------------
@@ -257,6 +304,36 @@ namespace Magnaundasoni
         public float  cpuTimeMs;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MagSpeakerLayout
+    {
+        public MagSpeakerLayoutPreset preset;
+        public uint channelCount;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = MagConstants.MaxSpeakers)]
+        public float[] azimuthDegrees;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = MagConstants.MaxSpeakers)]
+        public float[] elevationDegrees;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MagSpatialConfig
+    {
+        public MagSpatialMode          mode;
+        public MagSpeakerLayoutPreset  speakerLayout;
+        public MagHRTFPreset           hrtfPreset;
+        public uint                    maxBinauralSources;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MagSpatialBackendInfo
+    {
+        public MagSpatialBackendType type;
+        public MagSpatialMode        requestedMode;
+        public uint                  outputChannels;
+        public uint                  usesHeadTracking;
+        public uint                  hasCustomHRTFDataset;
+    }
+
     // ------------------------------------------------------------------
     // Native library loader – resolves platform-specific library name
     // ------------------------------------------------------------------
@@ -285,6 +362,10 @@ namespace Magnaundasoni
 
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern MagStatus mag_engine_destroy(IntPtr engine);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MagStatus mag_engine_config_defaults(
+            out MagEngineConfig outConfig);
 
         // Materials
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
@@ -364,6 +445,36 @@ namespace Magnaundasoni
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern MagStatus mag_debug_get_active_edges(
             IntPtr engine, out uint outCount);
+
+        // Spatialisation
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MagStatus mag_set_spatial_config(
+            IntPtr engine, ref MagSpatialConfig config);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MagStatus mag_get_spatial_config(
+            IntPtr engine, out MagSpatialConfig outConfig);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MagStatus mag_set_hrtf_dataset(
+            IntPtr engine, IntPtr sofaData, uint sofaSize);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MagStatus mag_set_hrtf_preset(
+            IntPtr engine, MagHRTFPreset preset);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MagStatus mag_set_listener_head_pose(
+            IntPtr engine, uint listenerID,
+            [MarshalAs(UnmanagedType.LPArray, SizeConst = 4)] float[] quaternion);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MagStatus mag_set_speaker_layout(
+            IntPtr engine, ref MagSpeakerLayout layout);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MagStatus mag_get_spatial_backend_info(
+            IntPtr engine, out MagSpatialBackendInfo outInfo);
     }
 
     // ------------------------------------------------------------------
@@ -397,6 +508,12 @@ namespace Magnaundasoni
         public static void EngineDestroy(IntPtr engine)
         {
             Check(MagnaundasoniNative.mag_engine_destroy(engine));
+        }
+
+        public static MagEngineConfig EngineConfigDefaults()
+        {
+            Check(MagnaundasoniNative.mag_engine_config_defaults(out MagEngineConfig config));
+            return config;
         }
 
         public static uint MaterialRegister(IntPtr engine, MagMaterialDesc desc)
@@ -493,6 +610,38 @@ namespace Magnaundasoni
         {
             Check(MagnaundasoniNative.mag_debug_get_active_edges(engine, out uint count));
             return count;
+        }
+
+        public static void SetSpatialConfig(IntPtr engine, MagSpatialConfig config)
+        {
+            Check(MagnaundasoniNative.mag_set_spatial_config(engine, ref config));
+        }
+
+        public static MagSpatialConfig GetSpatialConfig(IntPtr engine)
+        {
+            Check(MagnaundasoniNative.mag_get_spatial_config(engine, out MagSpatialConfig config));
+            return config;
+        }
+
+        public static void SetHrtfPreset(IntPtr engine, MagHRTFPreset preset)
+        {
+            Check(MagnaundasoniNative.mag_set_hrtf_preset(engine, preset));
+        }
+
+        public static void SetListenerHeadPose(IntPtr engine, uint listenerID, float[] quaternion)
+        {
+            Check(MagnaundasoniNative.mag_set_listener_head_pose(engine, listenerID, quaternion));
+        }
+
+        public static void SetSpeakerLayout(IntPtr engine, MagSpeakerLayout layout)
+        {
+            Check(MagnaundasoniNative.mag_set_speaker_layout(engine, ref layout));
+        }
+
+        public static MagSpatialBackendInfo GetSpatialBackendInfo(IntPtr engine)
+        {
+            Check(MagnaundasoniNative.mag_get_spatial_backend_info(engine, out MagSpatialBackendInfo info));
+            return info;
         }
     }
 }

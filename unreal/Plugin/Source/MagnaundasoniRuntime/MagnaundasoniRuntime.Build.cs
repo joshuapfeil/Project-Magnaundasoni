@@ -43,7 +43,7 @@ public class MagnaundasoniRuntime : ModuleRules
         // Prefer the plugin-local ThirdParty layout (used when the plugin is installed
         // in an external UE project); fall back to the repo-relative native/include
         // path so the module compiles during in-repo development.
-        string PluginIncludeDir = Path.Combine(ModuleDirectory, "..", "..", "ThirdParty", "Magnaundasoni", "include");
+        string PluginIncludeDir = Path.Combine(ModuleDirectory, "..", "ThirdParty", "Magnaundasoni", "include");
         string NativeDir = Path.Combine(ModuleDirectory, "..", "..", "..", "..", "native");
         string RepoIncludeDir = Path.Combine(NativeDir, "include");
 

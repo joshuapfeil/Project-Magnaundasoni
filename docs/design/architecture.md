@@ -1,5 +1,12 @@
 # Magnaundasoni – System Architecture
 
+> **Note**: This document is an early **design specification**.  Function and
+> type names shown here (e.g. `magn_*` / `Magn*` / `MAGN_*`) reflect the
+> original design drafts.  The implemented public header is
+> [`native/include/Magnaundasoni.h`](../../native/include/Magnaundasoni.h),
+> which uses the `mag_` / `Mag` / `MAG_` naming prefix.
+> For the up-to-date function reference, see [`docs/API.md`](../API.md).
+
 ## Overview
 
 Magnaundasoni is a real-time acoustics runtime that computes physically-inspired

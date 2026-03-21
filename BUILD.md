@@ -21,7 +21,7 @@ Linux, Windows, and macOS.
 
 | Tool         | Minimum version | Notes                                       |
 |--------------|-----------------|---------------------------------------------|
-| C++ compiler | C++17 capable   | GCC 9+, Clang 10+, MSVC 2019+               |
+| C++ compiler | C++20 capable (C++17 fallback) | GCC 10+, Clang 11+, MSVC 2019+ |
 | CMake        | 3.16            | Matches `native/CMakeLists.txt`; newer OK   |
 | Ninja        | 1.10            | Recommended generator (faster than Make)    |
 | Git          | 2.30            | LFS required for binary test assets         |

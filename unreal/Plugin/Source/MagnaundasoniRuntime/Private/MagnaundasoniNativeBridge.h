@@ -30,6 +30,7 @@ typedef uint32 MagGeometryIDNative;
 typedef uint32 MagMaterialIDNative;
 
 #define MAG_MAX_BANDS_NATIVE 8
+#define MAG_MAX_SPEAKERS_NATIVE 12
 
 struct FMagSourceDescNative
 {
@@ -112,6 +113,31 @@ struct FMagAcousticResultNative
     FMagLateFieldNative       lateField;
 };
 
+struct FMagSpeakerLayoutNative
+{
+    int32  preset;
+    uint32 channelCount;
+    float  azimuthDegrees[MAG_MAX_SPEAKERS_NATIVE];
+    float  elevationDegrees[MAG_MAX_SPEAKERS_NATIVE];
+};
+
+struct FMagSpatialConfigNative
+{
+    int32  mode;
+    int32  speakerLayout;
+    int32  hrtfPreset;
+    uint32 maxBinauralSources;
+};
+
+struct FMagSpatialBackendInfoNative
+{
+    int32  type;
+    int32  requestedMode;
+    uint32 outputChannels;
+    uint32 usesHeadTracking;
+    uint32 hasCustomHRTFDataset;
+};
+
 // ---------------------------------------------------------------------------
 // Function pointer typedefs
 // ---------------------------------------------------------------------------
@@ -156,6 +182,33 @@ typedef MagStatusNative (*PFN_mag_material_get_preset)(
 typedef MagStatusNative (*PFN_mag_material_register)(
     MagEngineNative engine, const FMagMaterialDescNative* desc, MagMaterialIDNative* outID);
 
+typedef MagStatusNative (*PFN_mag_set_quality)(
+    MagEngineNative engine, int32 level);
+
+typedef MagStatusNative (*PFN_mag_debug_get_ray_count)(
+    MagEngineNative engine, uint32* outCount);
+
+typedef MagStatusNative (*PFN_mag_debug_get_active_edges)(
+    MagEngineNative engine, uint32* outCount);
+
+typedef MagStatusNative (*PFN_mag_set_spatial_config)(
+    MagEngineNative engine, const FMagSpatialConfigNative* config);
+
+typedef MagStatusNative (*PFN_mag_get_spatial_config)(
+    MagEngineNative engine, FMagSpatialConfigNative* outConfig);
+
+typedef MagStatusNative (*PFN_mag_set_hrtf_preset)(
+    MagEngineNative engine, int32 preset);
+
+typedef MagStatusNative (*PFN_mag_set_listener_head_pose)(
+    MagEngineNative engine, uint32 listenerID, const float* quaternion);
+
+typedef MagStatusNative (*PFN_mag_set_speaker_layout)(
+    MagEngineNative engine, const FMagSpeakerLayoutNative* layout);
+
+typedef MagStatusNative (*PFN_mag_get_spatial_backend_info)(
+    MagEngineNative engine, FMagSpatialBackendInfoNative* outInfo);
+
 // ---------------------------------------------------------------------------
 // FMagNativeBridge
 // ---------------------------------------------------------------------------
@@ -187,12 +240,25 @@ struct FMagNativeBridge
     PFN_mag_material_get_preset       MaterialGetPreset        = nullptr;
     PFN_mag_material_register         MaterialRegister         = nullptr;
 
+    PFN_mag_set_quality               SetQuality               = nullptr;
+
+    PFN_mag_debug_get_ray_count       DebugGetRayCount         = nullptr;
+    PFN_mag_debug_get_active_edges    DebugGetActiveEdges      = nullptr;
+
+    PFN_mag_set_spatial_config        SetSpatialConfig         = nullptr;
+    PFN_mag_get_spatial_config        GetSpatialConfig         = nullptr;
+    PFN_mag_set_hrtf_preset           SetHrtfPreset            = nullptr;
+    PFN_mag_set_listener_head_pose    SetListenerHeadPose      = nullptr;
+    PFN_mag_set_speaker_layout        SetSpeakerLayout         = nullptr;
+    PFN_mag_get_spatial_backend_info  GetSpatialBackendInfo    = nullptr;
+
     /** Returns true if the mandatory function pointers are all resolved. */
     bool IsValid() const
     {
         return SourceRegister   && SourceUnregister   && SourceUpdate
             && ListenerRegister && ListenerUnregister && ListenerUpdate
             && GeometryRegister && GeometryUnregister && GeometryUpdateTransform
-            && Update           && GetAcousticResult;
+            && Update           && GetAcousticResult
+            && MaterialGetPreset && MaterialRegister;
     }
 };

@@ -7,6 +7,10 @@
 | Deciders    | Core Team                    |
 | Category    | API / Data Contract          |
 
+> **Naming note**: Type and function names in this ADR (e.g. `Magn*`, `magn_*`)
+> reflect the original design drafts.  The implementation uses the `Mag` / `mag_`
+> / `MAG_` prefix — see [`docs/API.md`](../API.md).
+
 ## Context
 
 Every downstream consumer—built-in renderer, Unity adapter, Unreal adapter,
