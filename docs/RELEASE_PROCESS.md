@@ -68,7 +68,7 @@ the GitHub Release:
 | `magnaundasoni-native-windows-x64-<ver>.zip` | `bin/magnaundasoni.dll`, `lib/magnaundasoni.lib`, `include/Magnaundasoni.h`, `VERSION` |
 | `magnaundasoni-native-macos-arm64-<ver>.zip` | `lib/libmagnaundasoni.dylib`, `include/Magnaundasoni.h`, `VERSION` |
 | `magnaundasoni-unity-<ver>.zip` | Full `unity/plugin/` tree (UPM layout) |
-| `magnaundasoni-unreal-<ver>.zip` | Full `unreal/Plugin/` tree (source + bundled native headers; no pre-built binaries) |
+| `magnaundasoni-unreal-<ver>.zip` | Full `unreal/Plugin/` tree with bundled native headers and any pre-built native libs from `dist/native/*.zip` |
 
 ---
 
@@ -154,11 +154,9 @@ Add or update the corresponding `.meta` files if you edit these paths.
 
 **Unreal** — The Unreal plugin ZIP already includes native headers under
 `Plugin/Source/ThirdParty/Magnaundasoni/include/` (bundled by
-`package-unreal.sh`). To make the release usable from Blueprint-only projects,
-also stage any precompiled plugin and native runtime binaries under
-`Plugin/Binaries/<Platform>/` before packaging. For source-based fallback
-builds, copy the native library files into the matching `Source/ThirdParty`
-subdirectory inside the plugin:
+`package-unreal.sh`). If matching native release ZIPs are already present under
+`dist/native/`, the script also auto-injects their pre-built libraries into the
+matching `Source/ThirdParty` subdirectory inside the plugin:
 
 ```
 Plugin/Source/ThirdParty/Magnaundasoni/Win64/magnaundasoni.dll
@@ -168,8 +166,10 @@ Plugin/Source/ThirdParty/Magnaundasoni/Mac/libmagnaundasoni.dylib
 ```
 
 `Magnaundasoni.Build.cs` automatically detects these paths and uses them
-instead of the repo-relative `native/build/` path, while `package-unreal.sh`
-keeps any pre-staged `Plugin/Binaries/` payload in the release ZIP.
+instead of the repo-relative `native/build/` path. To make the release usable
+from Blueprint-only projects, also stage any precompiled plugin and native
+runtime binaries under `Plugin/Binaries/<Platform>/` before packaging;
+`package-unreal.sh` keeps that pre-staged payload in the release ZIP.
 
 ### Step 4 — Package the Unity plugin
 
@@ -242,6 +242,12 @@ gh release create v1.2.3 \
 > If you skip step 5 (no pre-built library), UBT will look for the native
 > library in the development tree (`native/build/`). This path only exists
 > when building from within the repository.
+
+> If you build a local Unreal ZIP without first producing `dist/native/*.zip`,
+> the package will still contain the plugin source plus headers, but end users
+> will need to provide native binaries separately. The release workflow now
+> downloads the native artifacts before packaging Unreal so published releases
+> stay self-contained.
 
 ---
 

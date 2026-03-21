@@ -47,42 +47,53 @@ MyProject/
         ├── Magnaundasoni.uplugin
         ├── Source/
         │   ├── Magnaundasoni/          (base module: native API bridge, engine lifecycle)
-        │   └── MagnaundasoniRuntime/   (runtime module: Actor Components for use in game)
-        └── Binaries/
-            ├── Win64/magnaundasoni.dll
-            ├── Linux/libmagnaundasoni.so
-            └── Mac/libmagnaundasoni.dylib
+        │   ├── MagnaundasoniRuntime/   (runtime module: Actor Components for use in game)
+        │   └── ThirdParty/Magnaundasoni/
+        │       ├── include/Magnaundasoni.h
+        │       ├── Win64/magnaundasoni.dll + magnaundasoni.lib
+        │       ├── Linux/libmagnaundasoni.so
+        │       └── Mac/libmagnaundasoni.dylib
+        └── Binaries/                   (included in precompiled releases; otherwise generated on first Unreal build)
 ```
 
 1. Download the latest Magnaundasoni Unreal plugin from the
    [Releases page](https://github.com/joshuapfeil/Project-Magnaundasoni/releases).
-2. Copy the extracted `Plugin/` folder into your project's
-   `Plugins/Magnaundasoni/` directory (see structure above).
-3. If you are using the precompiled release ZIP, enable the plugin in the
-   editor and restart when prompted. No game-side C++ module is required.
-4. If you are installing from a source checkout instead of a release ZIP, copy
-   the platform-specific native libraries into
-   `Source/ThirdParty/Magnaundasoni/<Platform>/`:
+2. Extract the archive; the top-level directory is `Plugin/`.
+3. Copy `Plugin/` into your project's `Plugins/Magnaundasoni/` directory
+   (see structure above).
+4. If you are using the precompiled release ZIP and it already contains
+   `Binaries/<Platform>/`, enable the plugin in the editor and restart when
+   prompted. No game-side C++ module is required.
+5. If you are installing from a source checkout or a source-only package
+   instead, copy the platform-specific native libraries into
+   `Source/ThirdParty/Magnaundasoni/Win64`, `Linux`, or `Mac`:
 
    - **Win64:** `magnaundasoni.dll` **and** `magnaundasoni.lib`
    - **Linux:** `libmagnaundasoni.so`
    - **Mac:** `libmagnaundasoni.dylib`
 
-   After copying the appropriate files, regenerate project files and build
-   from a C++-capable toolchain.
+6. For source-based installs, regenerate project files and build once from a
+   C++-capable toolchain. The bundled ThirdParty libraries are picked up
+   automatically, and Unreal generates the plugin's `Binaries/` folder during
+   that build.
 
 ### Blueprint-only projects
 
 The runtime components (`UMagSourceComponent`, `UMagListenerComponent`, and
 `UMagGeometryComponent`) are already Blueprint-spawnable, so Blueprint-only
-projects can use the packaged plugin directly as long as the plugin ZIP already
-contains its precompiled `Plugin/Binaries/<Platform>/` payload. The repository
-source tree is still intended for source builds and Unreal plugin development.
+projects can use the packaged plugin directly when the release ZIP includes its
+precompiled `Plugin/Binaries/<Platform>/` payload. The repository source tree
+is still intended for source builds and Unreal plugin development.
 
-### Build.cs Configuration
+No edits to your game's `.Build.cs` are required just to install or enable the
+plugin.
 
-In your game module's `.Build.cs`, add the **MagnaundasoniRuntime** module
-(which pulls in the base module automatically):
+### Optional C++ module dependency
+
+If your own C++ game module needs to include Magnaundasoni headers or directly
+reference `UMagSourceComponent`, `UMagListenerComponent`, `UMagGeometryComponent`,
+or other plugin types, add the **MagnaundasoniRuntime** module (which pulls in
+the base module automatically):
 
 ```csharp
 PublicDependencyModuleNames.AddRange(new string[]
