@@ -143,12 +143,12 @@ else:
     sys.exit(0)
 
 with zipfile.ZipFile(zip_path) as archive:
+    target_dir = os.path.join(output_root, platform_dir)
+    os.makedirs(target_dir, exist_ok=True)
     missing = []
     for source_rel_path, target_name in files_to_copy.items():
         try:
             with archive.open(source_rel_path) as src:
-                target_dir = os.path.join(output_root, platform_dir)
-                os.makedirs(target_dir, exist_ok=True)
                 with open(os.path.join(target_dir, target_name), "wb") as dst:
                     shutil.copyfileobj(src, dst)
         except KeyError:
