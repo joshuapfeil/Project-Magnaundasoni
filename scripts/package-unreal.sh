@@ -14,10 +14,10 @@
 #
 # Description:
 #   Creates a distributable ZIP archive of the Magnaundasoni Unreal plugin
-#   located in unreal/Plugin/. The archive does NOT include generated
-#   Binaries/, Intermediate/, or Saved/ directories — those are produced by
-#   Unreal Build Tool (UBT) on the developer's machine after installing the
-#   plugin.
+#   located in unreal/Plugin/. Any pre-staged Binaries/ payload is preserved in
+#   the archive, while generated Intermediate/, Saved/, and similar directories
+#   are excluded because Unreal Build Tool (UBT) recreates them on the
+#   developer's machine after installing the plugin.
 #
 #   If dist/native/*.zip archives are present (for example the release workflow's
 #   native artifacts), the script stages their pre-built libraries into
@@ -96,6 +96,7 @@ cp -R "$PLUGIN_DIR" "$STAGED_PLUGIN_DIR"
 # ---------------------------------------------------------------------------
 NATIVE_THIRDPARTY="$STAGED_PLUGIN_DIR/Source/ThirdParty/Magnaundasoni"
 NATIVE_INCLUDE_SRC="$REPO_ROOT/native/include"
+PLUGIN_BINARIES_DIR="$STAGED_PLUGIN_DIR/Binaries"
 
 if [ -d "$NATIVE_INCLUDE_SRC" ]; then
     mkdir -p "$NATIVE_THIRDPARTY"
@@ -216,13 +217,45 @@ then
 fi
 
 # ---------------------------------------------------------------------------
+# If platform-native binaries have already been staged in Source/ThirdParty,
+# mirror them into Plugin/Binaries so precompiled plugin builds remain
+# self-contained when installed into Blueprint-only projects.
+# ---------------------------------------------------------------------------
+COPIED_BINARIES=""
+
+copy_native_runtime() {
+    src="$1"
+    dst_dir="$2"
+    dst="$dst_dir/$(basename "$src")"
+
+    if [ -f "$src" ]; then
+        mkdir -p "$dst_dir"
+        if [ ! -f "$dst" ]; then
+            cp "$src" "$dst"
+            if [ -n "$COPIED_BINARIES" ]; then
+                COPIED_BINARIES="$(printf '%s\n%s' "$COPIED_BINARIES" "$dst")"
+            else
+                COPIED_BINARIES="$dst"
+            fi
+        fi
+    fi
+}
+
+copy_native_runtime "$NATIVE_THIRDPARTY/Win64/magnaundasoni.dll" \
+    "$PLUGIN_BINARIES_DIR/Win64"
+copy_native_runtime "$NATIVE_THIRDPARTY/Linux/libmagnaundasoni.so" \
+    "$PLUGIN_BINARIES_DIR/Linux"
+copy_native_runtime "$NATIVE_THIRDPARTY/Mac/libmagnaundasoni.dylib" \
+    "$PLUGIN_BINARIES_DIR/Mac"
+
+# ---------------------------------------------------------------------------
 # Create archive
-# Exclude generated directories that UBT recreates on first build.
+# Preserve any pre-staged Binaries/ payload and exclude generated directories
+# that UBT recreates on first build.
 # ---------------------------------------------------------------------------
 (
     cd "$STAGE_DIR"
     zip -r "$DIST_DIR/${ARCHIVE_NAME}.zip" Plugin/ \
-        -x "Plugin/Binaries/*" \
         -x "Plugin/Intermediate/*" \
         -x "Plugin/Saved/*" \
         -x "Plugin/DerivedDataCache/*" \

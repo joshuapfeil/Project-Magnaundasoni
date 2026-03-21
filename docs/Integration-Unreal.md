@@ -32,7 +32,7 @@ into an Unreal Engine 5 project.
 |----------------|--------------------|
 | Unreal Engine  | 5.2 or newer       |
 | Platform       | Windows, Linux, Xbox Series X/S, PlayStation 5, Android |
-| Build system   | C++ project (Blueprint-only projects must convert) |
+| Build system   | None for the precompiled release plugin; C++ project only when building the plugin from source |
 
 ---
 
@@ -53,7 +53,7 @@ MyProject/
         │       ├── Win64/magnaundasoni.dll + magnaundasoni.lib
         │       ├── Linux/libmagnaundasoni.so
         │       └── Mac/libmagnaundasoni.dylib
-        └── Binaries/                   (generated on first Unreal build)
+        └── Binaries/                   (included in precompiled releases; otherwise generated on first Unreal build)
 ```
 
 1. Download the latest Magnaundasoni Unreal plugin from the
@@ -61,10 +61,29 @@ MyProject/
 2. Extract the archive; the top-level directory is `Plugin/`.
 3. Copy `Plugin/` into your project's `Plugins/Magnaundasoni/` directory
    (see structure above).
-4. Right-click your `.uproject` file and regenerate project files.
-5. Build the project once in your IDE or via Unreal Build Tool. The bundled
-   ThirdParty libraries are picked up automatically, and Unreal generates the
-   plugin's `Binaries/` folder during that build.
+4. If you are using the precompiled release ZIP and it already contains
+   `Binaries/<Platform>/`, enable the plugin in the editor and restart when
+   prompted. No game-side C++ module is required.
+5. If you are installing from a source checkout or a source-only package
+   instead, copy the platform-specific native libraries into
+   `Source/ThirdParty/Magnaundasoni/Win64`, `Linux`, or `Mac`:
+
+   - **Win64:** `magnaundasoni.dll` **and** `magnaundasoni.lib`
+   - **Linux:** `libmagnaundasoni.so`
+   - **Mac:** `libmagnaundasoni.dylib`
+
+6. For source-based installs, regenerate project files and build once from a
+   C++-capable toolchain. The bundled ThirdParty libraries are picked up
+   automatically, and Unreal generates the plugin's `Binaries/` folder during
+   that build.
+
+### Blueprint-only projects
+
+The runtime components (`UMagSourceComponent`, `UMagListenerComponent`, and
+`UMagGeometryComponent`) are already Blueprint-spawnable, so Blueprint-only
+projects can use the packaged plugin directly when the release ZIP includes its
+precompiled `Plugin/Binaries/<Platform>/` payload. The repository source tree
+is still intended for source builds and Unreal plugin development.
 
 No edits to your game's `.Build.cs` are required just to install or enable the
 plugin.
@@ -169,13 +188,20 @@ void AMyGameMode::BeginPlay()
 
 ## Scene Setup
 
-### Automatic Geometry Registration via Actor Component
+### Automatic Geometry Registration
 
-Add the `UMagnGeometryComponent` to any actor with static mesh components.
+At runtime, the Unreal integration now auto-discovers actors that have
+`UStaticMeshComponent`s and do not already have a `UMagGeometryComponent`
+override. The plugin attaches a geometry component automatically, registers the
+mesh with default settings, and keeps doing that for newly spawned or streamed
+actors without re-scanning the full world every frame.
+
+Use an explicit `UMagGeometryComponent` when you need non-default material or
+dynamic-importance settings.
 
 ```cpp
 // In your actor's constructor or Blueprint
-UMagnGeometryComponent* GeomComp = CreateDefaultSubobject<UMagnGeometryComponent>(
+UMagGeometryComponent* GeomComp = CreateDefaultSubobject<UMagGeometryComponent>(
     TEXT("MagnGeometry"));
 GeomComp->MaterialPreset = TEXT("Wood");
 GeomComp->bAutoRegister = true;
@@ -312,7 +338,7 @@ Create a `UMagnMaterialDataAsset` in the Content Browser:
 
 1. Right-click → **Magnaundasoni → Material Data Asset**.
 2. Configure absorption, transmission, and scattering bands.
-3. Reference the asset in your `UMagnGeometryComponent`.
+3. Reference the asset in your `UMagGeometryComponent`.
 
 ---
 
@@ -592,7 +618,7 @@ magn.Debug.ShowStats 1         -- HUD with tick time and active source count
 |---------|-------|----------|
 | Plugin not found | Missing `.uplugin` or library path | Verify `Plugins/Magnaundasoni/` structure; rebuild |
 | Linker errors | Missing `MagnaundasoniRuntime` module dependency | Add `"MagnaundasoniRuntime"` to `Build.cs` `PublicDependencyModuleNames` |
-| `Native engine: null` in log | Native DLL missing | Place `magnaundasoni.dll` / `.so` / `.dylib` in `Plugins/Magnaundasoni/Binaries/<Platform>/` |
+| `Native engine: null` in log | Native DLL missing | Ensure the release plugin kept `Plugins/Magnaundasoni/Binaries/<Platform>/` intact, or for source builds place the native library in `Plugins/Magnaundasoni/Source/ThirdParty/Magnaundasoni/<Platform>/` before rebuilding |
 | Components inactive (no sound changes) | Native function table not resolved | Check log for `ResolveFunctionPointers` errors; verify DLL version matches header |
 | No acoustic effect | Subsystem not ticking | Ensure `UMagnaundasoniSubsystem` is registered in your `DefaultEngine.ini` |
 | World Partition chunks not loading | Streaming delegates not bound | Verify `bAutoStreamingEnabled` is `true` on the subsystem |
