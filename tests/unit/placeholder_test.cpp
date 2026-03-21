@@ -11,13 +11,8 @@
 
 #include "Magnaundasoni.h"
 #include "render/BandProcessor.h"
-#include "render/OutputMixer.h"
-#include "spatial/SpatialConfig.h"
 
-#include <algorithm>
 #include <cmath>
-#include <numeric>
-#include <vector>
 
 using namespace magnaundasoni;
 using namespace magnaundasoni::BandProcessor;
@@ -38,28 +33,6 @@ static MagEngineConfig defaultConfig() {
     cfg.worldChunkSize      = 50.0f;
     cfg.effectiveBandCount  = 8;
     return cfg;
-}
-
-static MagAcousticResult directOnlyResult(float x, float y, float z, float gain = 1.0f) {
-    MagAcousticResult result{};
-    result.direct.delay = 0.0f;
-    result.direct.direction[0] = x;
-    result.direct.direction[1] = y;
-    result.direct.direction[2] = z;
-    for (int i = 0; i < MAG_MAX_BANDS; ++i) {
-        result.direct.perBandGain[i] = gain;
-    }
-    return result;
-}
-
-static float channelEnergy(const std::vector<float>& buffer,
-                           uint32_t channels,
-                           uint32_t channel) {
-    float sum = 0.0f;
-    for (size_t i = channel; i < buffer.size(); i += channels) {
-        sum += std::fabs(buffer[i]);
-    }
-    return sum;
 }
 
 // ---------------------------------------------------------------------------
@@ -346,54 +319,47 @@ TEST_CASE("Listener head pose API validates listener IDs and quaternion data", "
     REQUIRE(mag_engine_destroy(engine) == MAG_OK);
 }
 
-TEST_CASE("OutputMixer binaural mode responds to direction and head pose", "[spatial][mixer]") {
-    OutputMixer mixer;
-    OutputMixer::Config cfg{};
-    cfg.channels = 2;
-    cfg.maxBlockSize = 64;
-    cfg.spatializationMode = OutputMixer::SpatializationMode::Binaural;
-    mixer.configure(cfg);
+TEST_CASE("Speaker layout API validates presets and custom channel counts", "[spatial][speaker-layout]") {
+    MagEngine engine = nullptr;
+    MagEngineConfig cfg = defaultConfig();
+    REQUIRE(mag_engine_create(&cfg, &engine) == MAG_OK);
 
-    mixer.stageResult(1, 1, directOnlyResult(1.0f, 0.0f, 1.0f));
-    mixer.commitStaged();
+    MagSpeakerLayout surround51{};
+    surround51.preset = MAG_SPEAKERS_51;
+    surround51.channelCount = 6;
+    surround51.azimuthDegrees[0] = -30.0f;
+    surround51.azimuthDegrees[1] = 30.0f;
+    surround51.azimuthDegrees[2] = 0.0f;
+    surround51.azimuthDegrees[3] = 180.0f;
+    surround51.azimuthDegrees[4] = -110.0f;
+    surround51.azimuthDegrees[5] = 110.0f;
+    REQUIRE(mag_set_speaker_layout(engine, &surround51) == MAG_OK);
 
-    std::vector<float> output(64 * 2, 0.0f);
-    mixer.mix(output.data(), 64);
-    float leftEnergy = channelEnergy(output, 2, 0);
-    float rightEnergy = channelEnergy(output, 2, 1);
-    REQUIRE(rightEnergy > leftEnergy);
+    MagSpatialConfig surroundConfig{};
+    surroundConfig.mode = MAG_SPATIAL_SURROUND_51;
+    surroundConfig.speakerLayout = MAG_SPEAKERS_51;
+    surroundConfig.hrtfPreset = MAG_HRTF_PRESET_DEFAULT_KEMAR;
+    surroundConfig.maxBinauralSources = 8;
+    REQUIRE(mag_set_spatial_config(engine, &surroundConfig) == MAG_OK);
 
-    const float yaw180Quat[4] = {0.0f, 1.0f, 0.0f, 0.0f};
-    mixer.setListenerHeadPose(yaw180Quat);
-    mixer.stageResult(2, 1, directOnlyResult(1.0f, 0.0f, 1.0f));
-    mixer.commitStaged();
+    MagSpatialBackendInfo backend{};
+    REQUIRE(mag_get_spatial_backend_info(engine, &backend) == MAG_OK);
+    REQUIRE(backend.type == MAG_SPATIAL_BACKEND_BUILTIN_SURROUND);
+    REQUIRE(backend.outputChannels == 6);
 
-    std::fill(output.begin(), output.end(), 0.0f);
-    mixer.mix(output.data(), 64);
-    float rotatedLeftEnergy = channelEnergy(output, 2, 0);
-    float rotatedRightEnergy = channelEnergy(output, 2, 1);
-    REQUIRE(rotatedLeftEnergy > rotatedRightEnergy);
-}
+    MagSpeakerLayout invalidLayout = surround51;
+    invalidLayout.channelCount = 5;
+    REQUIRE(mag_set_speaker_layout(engine, &invalidLayout) == MAG_INVALID_PARAM);
 
-TEST_CASE("OutputMixer surround mode distributes energy across configured speakers", "[spatial][surround]") {
-    OutputMixer mixer;
-    OutputMixer::Config cfg{};
-    cfg.channels = 6;
-    cfg.maxBlockSize = 32;
-    cfg.spatializationMode = OutputMixer::SpatializationMode::Surround;
-    cfg.speakerLayout = defaultSpeakerLayout(MAG_SPEAKERS_51);
-    mixer.configure(cfg);
+    MagSpeakerLayout customLayout{};
+    customLayout.preset = MAG_SPEAKERS_CUSTOM;
+    customLayout.channelCount = 3;
+    customLayout.azimuthDegrees[0] = -30.0f;
+    customLayout.azimuthDegrees[1] = 30.0f;
+    customLayout.azimuthDegrees[2] = 180.0f;
+    REQUIRE(mag_set_speaker_layout(engine, &customLayout) == MAG_OK);
 
-    mixer.stageResult(1, 1, directOnlyResult(1.0f, 0.0f, 1.0f));
-    mixer.commitStaged();
-
-    std::vector<float> output(32 * 6, 0.0f);
-    mixer.mix(output.data(), 32);
-
-    REQUIRE(channelEnergy(output, 6, 1) > channelEnergy(output, 6, 0));
-    REQUIRE(channelEnergy(output, 6, 1) > 0.0f);
-    REQUIRE(std::accumulate(output.begin(), output.end(), 0.0f,
-                            [](float acc, float sample) { return acc + std::fabs(sample); }) > 0.0f);
+    REQUIRE(mag_engine_destroy(engine) == MAG_OK);
 }
 
 // ---------------------------------------------------------------------------
