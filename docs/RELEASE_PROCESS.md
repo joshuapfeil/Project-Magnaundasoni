@@ -231,7 +231,7 @@ gh release create v1.2.3 \
    that precompiled package directly.
 5. If you are building the plugin from source instead, download the native ZIP
    for your target platform and copy the library file into
-   `Plugins/Magnaundasoni/Source/ThirdParty/Magnaundasoni/Win64`, `Linux`, or `Mac`
+   `Plugins/Magnaundasoni/Source/ThirdParty/Magnaundasoni/<Platform>/`
    (see [Step 3](#step-3--optional-inject-native-binaries-into-unityunreal-plugin-trees)
    for exact filenames). `Magnaundasoni.Build.cs` picks up these files
    automatically.
