@@ -42,7 +42,7 @@ be in the `Plugins/` folder of the Unity adapter package.
 
 1. Open **Window → Package Manager**.
 2. Click **+ → Add package from git URL…**
-3. Enter: `https://github.com/<org>/magnaundasoni-unity.git`
+3. Enter: `https://github.com/joshuapfeil/Project-Magnaundasoni.git?path=unity/plugin`
 4. Click **Add**.
 
 ### Manual Installation

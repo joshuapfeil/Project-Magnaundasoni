@@ -14,7 +14,7 @@
 In `Packages/manifest.json`, add:
 
 ```json
-"com.magnaundasoni.acoustics": "https://github.com/<org>/Project-Magnaundasoni.git?path=unity/plugin"
+"com.magnaundasoni.acoustics": "https://github.com/joshuapfeil/Project-Magnaundasoni.git?path=unity/plugin"
 ```
 
 ## Setup Steps
