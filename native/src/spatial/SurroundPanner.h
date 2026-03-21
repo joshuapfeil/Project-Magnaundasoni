@@ -20,6 +20,7 @@ private:
     struct Speaker {
         Vec3 direction;
         uint32_t channel = 0;
+        bool participatesInSpatialPanning = true;
     };
 
     std::vector<Speaker> speakers_;

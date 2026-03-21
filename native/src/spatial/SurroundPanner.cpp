@@ -21,6 +21,13 @@ Vec3 directionFromAngles(float azimuthDeg, float elevationDeg) {
     };
 }
 
+bool isLFEChannel(const MagSpeakerLayout& layout, uint32_t index) {
+    return (layout.preset == MAG_SPEAKERS_51 ||
+            layout.preset == MAG_SPEAKERS_71 ||
+            layout.preset == MAG_SPEAKERS_714) &&
+           index == 3;
+}
+
 } // namespace
 
 void SurroundPanner::configure(const MagSpeakerLayout& layout) {
@@ -29,7 +36,8 @@ void SurroundPanner::configure(const MagSpeakerLayout& layout) {
     for (uint32_t i = 0; i < layout.channelCount; ++i) {
         speakers_.push_back({
             directionFromAngles(layout.azimuthDegrees[i], layout.elevationDegrees[i]).normalized(),
-            i
+            i,
+            !isLFEChannel(layout, i)
         });
     }
 }
@@ -46,7 +54,7 @@ void SurroundPanner::pan(const Vec3& direction, float gain, float* channelGains,
     float bestWeight = -1.0f;
 
     for (const auto& speaker : speakers_) {
-        if (speaker.channel >= channelCount) continue;
+        if (speaker.channel >= channelCount || !speaker.participatesInSpatialPanning) continue;
         float weight = std::max(0.0f, dir.dot(speaker.direction));
         weight *= weight;
         channelGains[speaker.channel] = weight;
@@ -71,10 +79,30 @@ void SurroundPanner::pan(const Vec3& direction, float gain, float* channelGains,
 void SurroundPanner::diffuse(float gain, float* channelGains, uint32_t channelCount,
                              float directionality) const {
     if (!channelGains || channelCount == 0) return;
-    float perChannel = gain / static_cast<float>(channelCount);
+    uint32_t diffuseChannels = 0;
+    for (const auto& speaker : speakers_) {
+        if (speaker.channel < channelCount && speaker.participatesInSpatialPanning) {
+            ++diffuseChannels;
+        }
+    }
+    bool diffuseAllChannels = diffuseChannels == 0 || speakers_.empty();
+    if (diffuseAllChannels) {
+        diffuseChannels = channelCount;
+    }
+
+    float perChannel = gain / static_cast<float>(diffuseChannels);
     float decorrelation = std::clamp(1.0f - directionality, 0.0f, 1.0f);
-    for (uint32_t i = 0; i < channelCount; ++i) {
-        channelGains[i] += perChannel * decorrelation;
+    if (diffuseAllChannels) {
+        for (uint32_t i = 0; i < channelCount; ++i) {
+            channelGains[i] += perChannel * decorrelation;
+        }
+        return;
+    }
+
+    for (const auto& speaker : speakers_) {
+        if (speaker.channel < channelCount && speaker.participatesInSpatialPanning) {
+            channelGains[speaker.channel] += perChannel * decorrelation;
+        }
     }
 }
 

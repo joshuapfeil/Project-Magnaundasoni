@@ -102,6 +102,7 @@ private:
 
     // Pre-allocated mix scratch buffers
     std::vector<float> scratchBuffer_;
+    std::vector<float> speakerGainScratch_;
 
     // Reverb state: simple feedback delay network
     struct FDNState {

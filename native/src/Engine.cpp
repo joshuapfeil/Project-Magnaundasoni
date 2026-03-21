@@ -322,17 +322,20 @@ MagStatus mag_set_spatial_config(MagEngine engine,
                                  const MagSpatialConfig* config) {
     if (!engine || !config) return MAG_INVALID_PARAM;
     if (!isValidSpatialMode(config->mode) ||
-        !isValidHRTFPreset(config->hrtfPreset)) {
+        !isValidHRTFPreset(config->hrtfPreset) ||
+        !isValidSpeakerLayoutPreset(config->speakerLayout)) {
         return MAG_INVALID_PARAM;
     }
 
     std::lock_guard lock(engine->spatialMutex);
-    engine->spatialConfig = *config;
-    if (engine->spatialConfig.maxBinauralSources == 0) {
-        engine->spatialConfig.maxBinauralSources = 16;
-    }
     MagSpeakerLayoutPreset layoutPreset = speakerLayoutForMode(config->mode,
                                                                config->speakerLayout);
+    MagSpatialConfig sanitizedConfig = *config;
+    sanitizedConfig.speakerLayout = layoutPreset;
+    if (sanitizedConfig.maxBinauralSources == 0) {
+        sanitizedConfig.maxBinauralSources = 16;
+    }
+    engine->spatialConfig = sanitizedConfig;
     if (layoutPreset != MAG_SPEAKERS_CUSTOM) {
         engine->speakerLayout = defaultSpeakerLayout(layoutPreset);
     } else if (engine->speakerLayout.channelCount == 0) {
@@ -375,15 +378,12 @@ MagStatus mag_set_listener_head_pose(MagEngine engine,
     float normalised[4];
     if (!normalizeQuaternion(quaternion, normalised)) return MAG_INVALID_PARAM;
 
-    const ListenerEntry* existing = engine->scene.getListener(listenerID);
-    if (!existing) return MAG_ERROR;
-
-    ListenerEntry updated = *existing;
-    updated.forward = rotateByQuaternion({0.0f, 0.0f, 1.0f}, normalised).normalized();
-    updated.up = rotateByQuaternion({0.0f, 1.0f, 0.0f}, normalised).normalized();
-    if (!engine->scene.updateListener(listenerID, updated)) return MAG_ERROR;
+    if (!engine->scene.getListener(listenerID)) return MAG_ERROR;
 
     std::lock_guard lock(engine->spatialMutex);
+    // Head pose is tracked separately from the listener basis configured via
+    // mag_listener_register/mag_listener_update so head-tracking stays a
+    // relative spatialization input instead of clobbering world orientation.
     engine->listenerHeadPoses[listenerID] = {
         normalised[0], normalised[1], normalised[2], normalised[3]
     };

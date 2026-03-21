@@ -30,9 +30,9 @@ void OutputMixer::configure(const Config& cfg) {
 
     // Allocate delay lines
     uint32_t maxDelaySamples = static_cast<uint32_t>(
-        cfg.maxDelayMs * 0.001f * static_cast<float>(cfg.sampleRate)) + 1;
+        config_.maxDelayMs * 0.001f * static_cast<float>(config_.sampleRate)) + 1;
 
-    delayLines_.resize(cfg.channels);
+    delayLines_.resize(config_.channels);
     for (auto& dl : delayLines_) {
         dl.buffer.assign(maxDelaySamples, 0.0f);
         dl.writePos = 0;
@@ -40,7 +40,8 @@ void OutputMixer::configure(const Config& cfg) {
     }
 
     // Pre-allocate scratch
-    scratchBuffer_.resize(cfg.maxBlockSize * cfg.channels, 0.0f);
+    scratchBuffer_.resize(config_.maxBlockSize * config_.channels, 0.0f);
+    speakerGainScratch_.resize(config_.channels, 0.0f);
 
     // Initialise FDN
     initialiseFDN();
@@ -172,11 +173,11 @@ void OutputMixer::synthesiseReverb(float* outputBuffer, uint32_t numFrames,
         // Mix FDN output into audio buffer.
         float reverbSample = (taps[0] + taps[1] + taps[2] + taps[3]) * 0.25f;
         if (config_.spatializationMode == SpatializationMode::Surround && ch > 2) {
-            std::vector<float> gains(ch, 0.0f);
-            surroundPanner_.diffuse(reverbSample * config_.masterGain, gains.data(), ch,
+            std::fill(speakerGainScratch_.begin(), speakerGainScratch_.end(), 0.0f);
+            surroundPanner_.diffuse(reverbSample * config_.masterGain, speakerGainScratch_.data(), ch,
                                     lateField.diffuseDirectionality);
             for (uint32_t c = 0; c < ch; ++c) {
-                outputBuffer[f * ch + c] += gains[c];
+                outputBuffer[f * ch + c] += speakerGainScratch_[c];
             }
         } else {
             for (uint32_t c = 0; c < ch; ++c) {
@@ -204,10 +205,10 @@ void OutputMixer::writeSpatialisedTap(const Vec3& direction, float baseDelay, fl
             break;
         }
         case SpatializationMode::Surround: {
-            std::vector<float> gains(ch, 0.0f);
-            surroundPanner_.pan(direction, gain * config_.masterGain, gains.data(), ch);
+            std::fill(speakerGainScratch_.begin(), speakerGainScratch_.end(), 0.0f);
+            surroundPanner_.pan(direction, gain * config_.masterGain, speakerGainScratch_.data(), ch);
             for (uint32_t c = 0; c < ch; ++c) {
-                writeDelayLine(baseDelay, gains[c], c);
+                writeDelayLine(baseDelay, speakerGainScratch_[c], c);
             }
             break;
         }

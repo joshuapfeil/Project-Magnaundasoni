@@ -13,6 +13,15 @@ void setSpeaker(float (&azimuths)[MAG_MAX_SPEAKERS],
     elevations[index] = elevationDeg;
 }
 
+void setLFE(float (&azimuths)[MAG_MAX_SPEAKERS],
+            float (&elevations)[MAG_MAX_SPEAKERS],
+            uint32_t index) {
+    azimuths[index] = 0.0f;
+    // Keep the built-in LFE (.1) channel explicitly non-directional; the
+    // surround panner excludes it from spatial panning and diffuse distribution.
+    elevations[index] = -90.0f;
+}
+
 } // namespace
 
 MagSpatialConfig defaultSpatialConfig() {
@@ -41,7 +50,7 @@ MagSpeakerLayout defaultSpeakerLayout(MagSpeakerLayoutPreset preset) {
             setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 0, -30.0f);
             setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 1, 30.0f);
             setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 2, 0.0f);
-            setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 3, 180.0f);
+            setLFE(layout.azimuthDegrees, layout.elevationDegrees, 3);
             setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 4, -110.0f);
             setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 5, 110.0f);
             break;
@@ -50,7 +59,7 @@ MagSpeakerLayout defaultSpeakerLayout(MagSpeakerLayoutPreset preset) {
             setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 0, -30.0f);
             setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 1, 30.0f);
             setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 2, 0.0f);
-            setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 3, 180.0f);
+            setLFE(layout.azimuthDegrees, layout.elevationDegrees, 3);
             setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 4, -90.0f);
             setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 5, 90.0f);
             setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 6, -150.0f);
@@ -61,7 +70,7 @@ MagSpeakerLayout defaultSpeakerLayout(MagSpeakerLayoutPreset preset) {
             setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 0, -30.0f);
             setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 1, 30.0f);
             setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 2, 0.0f);
-            setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 3, 180.0f);
+            setLFE(layout.azimuthDegrees, layout.elevationDegrees, 3);
             setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 4, -90.0f);
             setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 5, 90.0f);
             setSpeaker(layout.azimuthDegrees, layout.elevationDegrees, 6, -150.0f);
@@ -91,9 +100,24 @@ bool isValidHRTFPreset(MagHRTFPreset preset) {
     return preset == MAG_HRTF_PRESET_DEFAULT_KEMAR;
 }
 
+bool isValidSpeakerLayoutPreset(MagSpeakerLayoutPreset preset) {
+    switch (preset) {
+        case MAG_SPEAKERS_CUSTOM:
+        case MAG_SPEAKERS_STEREO:
+        case MAG_SPEAKERS_QUAD:
+        case MAG_SPEAKERS_51:
+        case MAG_SPEAKERS_71:
+        case MAG_SPEAKERS_714:
+            return true;
+        default:
+            return false;
+    }
+}
+
 bool isValidSpeakerLayout(const MagSpeakerLayout* layout) {
     if (!layout) return false;
     if (layout->channelCount == 0 || layout->channelCount > MAG_MAX_SPEAKERS) return false;
+    if (!isValidSpeakerLayoutPreset(layout->preset)) return false;
     switch (layout->preset) {
         case MAG_SPEAKERS_CUSTOM: return true;
         case MAG_SPEAKERS_STEREO: return layout->channelCount == 2;

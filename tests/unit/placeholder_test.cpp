@@ -271,7 +271,7 @@ TEST_CASE("Spatial config and HRTF controls round-trip through the C ABI", "[spa
 
     MagSpatialConfig spatial{};
     spatial.mode = MAG_SPATIAL_SURROUND_51;
-    spatial.speakerLayout = MAG_SPEAKERS_51;
+    spatial.speakerLayout = MAG_SPEAKERS_STEREO;
     spatial.hrtfPreset = MAG_HRTF_PRESET_DEFAULT_KEMAR;
     spatial.maxBinauralSources = 4;
     REQUIRE(mag_set_spatial_config(engine, &spatial) == MAG_OK);
@@ -281,6 +281,10 @@ TEST_CASE("Spatial config and HRTF controls round-trip through the C ABI", "[spa
     REQUIRE(roundTrip.mode == MAG_SPATIAL_SURROUND_51);
     REQUIRE(roundTrip.speakerLayout == MAG_SPEAKERS_51);
     REQUIRE(roundTrip.maxBinauralSources == 4);
+
+    MagSpatialConfig invalidSpatial = spatial;
+    invalidSpatial.speakerLayout = static_cast<MagSpeakerLayoutPreset>(999);
+    REQUIRE(mag_set_spatial_config(engine, &invalidSpatial) == MAG_INVALID_PARAM);
 
     uint8_t testHrtfData[] = {1, 2, 3, 4};
     REQUIRE(mag_set_hrtf_dataset(engine, testHrtfData, sizeof(testHrtfData)) == MAG_OK);

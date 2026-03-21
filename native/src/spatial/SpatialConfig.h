@@ -9,6 +9,7 @@ MagSpatialConfig defaultSpatialConfig();
 MagSpeakerLayout defaultSpeakerLayout(MagSpeakerLayoutPreset preset);
 bool isValidSpatialMode(MagSpatialMode mode);
 bool isValidHRTFPreset(MagHRTFPreset preset);
+bool isValidSpeakerLayoutPreset(MagSpeakerLayoutPreset preset);
 bool isValidSpeakerLayout(const MagSpeakerLayout* layout);
 bool isSurroundMode(MagSpatialMode mode);
 MagSpeakerLayoutPreset speakerLayoutForMode(MagSpatialMode mode,
