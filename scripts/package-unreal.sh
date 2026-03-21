@@ -105,7 +105,6 @@ else
     echo "WARNING: native/include not found; headers will not be bundled." >&2
 fi
 
-# ---------------------------------------------------------------------------
 # Bundle pre-built native libraries when native release archives are available.
 # This keeps the packaged plugin self-contained while still allowing the script
 # to run locally without platform archives.
@@ -216,7 +215,6 @@ then
     exit 1
 fi
 
-# ---------------------------------------------------------------------------
 # If platform-native binaries have already been staged in Source/ThirdParty,
 # mirror them into Plugin/Binaries so precompiled plugin builds remain
 # self-contained when installed into Blueprint-only projects.

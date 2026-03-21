@@ -116,6 +116,18 @@ int main(void)
 | `mag_listener_register` | `MagStatus mag_listener_register(MagEngine engine, const MagListenerDesc* desc, MagListenerID* outID)` | Register a listener. |
 | `mag_listener_unregister` | `MagStatus mag_listener_unregister(MagEngine engine, MagListenerID id)` | Remove a listener. |
 | `mag_listener_update` | `MagStatus mag_listener_update(MagEngine engine, MagListenerID id, const MagListenerDesc* desc)` | Update listener position/orientation. |
+| `mag_set_listener_head_pose` | `MagStatus mag_set_listener_head_pose(MagEngine engine, uint32_t listenerID, const float quaternion[4])` | Store a listener's head-tracked `(x, y, z, w)` quaternion without overwriting the listener basis last set via `mag_listener_register` / `mag_listener_update`. |
+
+### Spatialisation
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `mag_set_spatial_config` | `MagStatus mag_set_spatial_config(MagEngine engine, const MagSpatialConfig* config)` | Configure built-in spatial routing (auto, binaural, passthrough, or surround presets). Invalid speaker layout presets are rejected, and surround modes resolve to the matching surround layout preset. |
+| `mag_get_spatial_config` | `MagStatus mag_get_spatial_config(MagEngine engine, MagSpatialConfig* outConfig)` | Query the active spatialisation configuration. |
+| `mag_set_hrtf_dataset` | `MagStatus mag_set_hrtf_dataset(MagEngine engine, const void* sofaData, size_t sofaSize)` | Provide a runtime HRTF dataset blob for the built-in binaural renderer. |
+| `mag_set_hrtf_preset` | `MagStatus mag_set_hrtf_preset(MagEngine engine, MagHRTFPreset preset)` | Revert to a built-in HRTF preset. |
+| `mag_set_speaker_layout` | `MagStatus mag_set_speaker_layout(MagEngine engine, const MagSpeakerLayout* layout)` | Override the current speaker layout with an explicit channel map. For the built-in default `x.1` presets, channel index `3` is reserved as the non-directional LFE channel and is excluded from directional surround panning. |
+| `mag_get_spatial_backend_info` | `MagStatus mag_get_spatial_backend_info(MagEngine engine, MagSpatialBackendInfo* outInfo)` | Report which built-in or platform spatial backend the current configuration resolves to. |
 
 ### Simulation
 
