@@ -110,7 +110,7 @@ fi
 # to run locally without platform archives.
 # ---------------------------------------------------------------------------
 bundle_native_zip() {
-    python3 - "$1" "$NATIVE_THIRDPARTY" <<'PY'
+    if ! python3 - "$1" "$NATIVE_THIRDPARTY" <<'PY'
 import os
 import shutil
 import sys
@@ -137,7 +137,10 @@ elif "native-macos" in archive_name:
         "lib/libmagnaundasoni.dylib": "libmagnaundasoni.dylib",
     }
 else:
-    print(f"WARNING: Skipping unrecognized native archive: {zip_path}", file=sys.stderr)
+    print(
+        f"WARNING: Skipping unrecognized native archive path: {zip_path}",
+        file=sys.stderr,
+    )
     sys.exit(0)
 
 temp_dir = tempfile.mkdtemp(prefix="magnaundasoni-native-")
@@ -165,35 +168,48 @@ try:
 finally:
     shutil.rmtree(temp_dir)
 PY
+    then
+        echo "ERROR: Failed to bundle native archive: $1" >&2
+        exit 1
+    fi
 }
 
-NATIVE_ARCHIVES_FOUND=0
+HAS_NATIVE_ARCHIVES=0
 if [ -d "$NATIVE_DIST_DIR" ]; then
-    for native_zip in "$NATIVE_DIST_DIR"/*.zip; do
-        if [ ! -f "$native_zip" ]; then
-            continue
-        fi
-
-        NATIVE_ARCHIVES_FOUND=1
-        echo "    bundling : $native_zip"
-        bundle_native_zip "$native_zip"
-    done
+    set -- "$NATIVE_DIST_DIR"/*.zip
+    if [ -e "$1" ]; then
+        for native_zip in "$@"; do
+            HAS_NATIVE_ARCHIVES=1
+            echo "    bundling : $native_zip"
+            bundle_native_zip "$native_zip"
+        done
+    fi
 fi
 
-if [ "$NATIVE_ARCHIVES_FOUND" -eq 0 ]; then
+if [ "$HAS_NATIVE_ARCHIVES" -eq 0 ]; then
     echo "WARNING: No dist/native/*.zip archives found; packaging source + headers only." >&2
 fi
 
 # Mark the staged descriptor as an installed plugin so the packaged ZIP behaves
 # like a drop-in distribution rather than an in-repo development copy.
-python3 - "$STAGED_PLUGIN_DIR/Magnaundasoni.uplugin" <<'PY'
+if ! python3 - "$STAGED_PLUGIN_DIR/Magnaundasoni.uplugin" <<'PY'
 import json
 import sys
 
 descriptor_path = sys.argv[1]
 
-with open(descriptor_path, "r", encoding="utf-8") as descriptor_file:
-    descriptor = json.load(descriptor_file)
+try:
+    with open(descriptor_path, "r", encoding="utf-8") as descriptor_file:
+        descriptor = json.load(descriptor_file)
+except FileNotFoundError:
+    print(f"ERROR: Plugin descriptor not found: {descriptor_path}", file=sys.stderr)
+    sys.exit(1)
+except json.JSONDecodeError as exc:
+    print(
+        f"ERROR: Plugin descriptor is not valid JSON: {descriptor_path}: {exc}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 descriptor["Installed"] = True
 
@@ -201,6 +217,10 @@ with open(descriptor_path, "w", encoding="utf-8") as descriptor_file:
     json.dump(descriptor, descriptor_file, indent=4)
     descriptor_file.write("\n")
 PY
+then
+    echo "ERROR: Failed to mark staged plugin descriptor as Installed=true" >&2
+    exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Create archive
