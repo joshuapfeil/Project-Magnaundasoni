@@ -17,18 +17,28 @@ namespace magnaundasoni {
 struct Triangle {
     Vec3     v0, v1, v2;
     Vec3     normal;
+    Vec3     e1;
+    Vec3     e2;
+    Vec3     centroidValue;
+    AABB     bounds;
     uint32_t materialID  = 0;
     uint32_t geometryID  = 0;
 
-    AABB computeAABB() const {
-        AABB box;
-        box.expand(v0);
-        box.expand(v1);
-        box.expand(v2);
-        return box;
+    void updateDerivedData() {
+        e1 = v1 - v0;
+        e2 = v2 - v0;
+
+        bounds = AABB{};
+        bounds.expand(v0);
+        bounds.expand(v1);
+        bounds.expand(v2);
+
+        centroidValue = (v0 + v1 + v2) * (1.0f / 3.0f);
     }
 
-    Vec3 centroid() const { return (v0 + v1 + v2) * (1.0f / 3.0f); }
+    AABB computeAABB() const { return bounds; }
+
+    Vec3 centroid() const { return centroidValue; }
 };
 
 /* ------------------------------------------------------------------ */
@@ -65,6 +75,12 @@ public:
     /** Number of triangles in the BVH. */
     uint32_t triangleCount() const { return static_cast<uint32_t>(triangles_.size()); }
 
+    /** Access the internal triangle array (read-only). */
+    const std::vector<Triangle>& triangles() const { return triangles_; }
+
+    /** Access the internal BVH node array (read-only). */
+    const std::vector<BVHNode>& nodes() const { return nodes_; }
+
     bool empty() const { return nodes_.empty(); }
 
 private:
@@ -81,7 +97,10 @@ private:
 
     /** Slab-test for AABB. */
     static bool rayAABB(const Ray& ray, const AABB& box,
-                        float tMin, float tMax);
+                        const Vec3& invDirection,
+                        const std::array<uint8_t, 3>& directionSign,
+                        float tMin, float tMax,
+                        float* outEntryT = nullptr);
 
     std::vector<Triangle> triangles_;
     std::vector<BVHNode>  nodes_;

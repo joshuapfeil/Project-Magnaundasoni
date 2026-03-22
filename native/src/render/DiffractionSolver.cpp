@@ -4,6 +4,7 @@
  */
 
 #include "DiffractionSolver.h"
+#include "../backends/ComputeBackend.h"
 #include "BandProcessor.h"
 
 #include <algorithm>
@@ -26,6 +27,13 @@ bool DiffractionSolver::isVisible(const Vec3& from, const Vec3& to,
     ray.direction = dir / dist;
     ray.tMin      = 0.001f;
     ray.tMax      = dist - 0.001f;
+
+    if (computeBackend_ && computeBackend_->available()) {
+        std::vector<Ray> rays{ray};
+        std::vector<uint8_t> hits;
+        if (computeBackend_->traceAnyBatch(rays, hits))
+            return hits.empty() || hits[0] == 0;
+    }
 
     return !bvh.intersectAny(ray);
 }

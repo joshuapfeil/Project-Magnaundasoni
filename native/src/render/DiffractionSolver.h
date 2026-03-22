@@ -17,6 +17,8 @@
 
 namespace magnaundasoni {
 
+class ComputeBackend;
+
 enum class QualityLevel : uint32_t {
     Low    = 0,
     Medium = 1,
@@ -46,6 +48,7 @@ public:
     };
 
     void configure(const Config& cfg) { config_ = cfg; }
+    void setComputeBackend(ComputeBackend* backend) { computeBackend_ = backend; }
 
     /// Compute diffraction taps for a source-listener pair.
     std::vector<DiffractionTapInternal> solve(
@@ -78,7 +81,8 @@ private:
         const Vec3& sourcePos,
         const Vec3& listenerPos) const;
 
-    Config config_;
+    Config          config_;
+    ComputeBackend* computeBackend_ = nullptr;
 };
 
 } // namespace magnaundasoni

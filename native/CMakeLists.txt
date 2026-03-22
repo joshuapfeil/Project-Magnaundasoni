@@ -6,7 +6,9 @@ project(Magnaundasoni VERSION 0.1.0 LANGUAGES CXX)
 # ---------------------------------------------------------------------------
 option(MAGNAUNDASONI_BUILD_TESTS   "Build unit tests"                   OFF)
 option(MAGNAUNDASONI_ENABLE_RT     "Enable hardware ray-tracing backends" OFF)
+option(MAGNAUNDASONI_ENABLE_COMPUTE "Enable compute-shader ray backend"  ON)
 option(MAGNAUNDASONI_ENABLE_SIMD   "Enable SIMD optimisations"           ON)
+option(MAGNAUNDASONI_BUILD_PROFILER_HOST "Build a small executable for profiling the DLL" ON)
 
 # CTest integration (enabled whenever tests are built)
 if(MAGNAUNDASONI_BUILD_TESTS)
@@ -96,7 +98,12 @@ set(MAG_SPATIAL_HEADERS
 
 # Engine entry-point that implements the C ABI
 set(MAG_ENGINE_SOURCES
-    src/Engine.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/ComputeBackend.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/Engine.cpp
+)
+
+set(MAG_BACKEND_HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/ComputeBackend.h
 )
 
 # ---------------------------------------------------------------------------
@@ -108,6 +115,7 @@ add_library(magnaundasoni SHARED
     ${MAG_CORE_SOURCES}
     ${MAG_RENDER_HEADERS}
     ${MAG_RENDER_SOURCES}
+    ${MAG_BACKEND_HEADERS}
     ${MAG_SPATIAL_HEADERS}
     ${MAG_SPATIAL_SOURCES}
     ${MAG_ENGINE_SOURCES}
@@ -161,6 +169,13 @@ if(MAGNAUNDASONI_ENABLE_RT)
     target_compile_definitions(magnaundasoni PRIVATE MAGNAUNDASONI_RT=1)
 endif()
 
+if(MAGNAUNDASONI_ENABLE_COMPUTE)
+    target_compile_definitions(magnaundasoni PRIVATE MAGNAUNDASONI_COMPUTE=1)
+    if(WIN32)
+        target_link_libraries(magnaundasoni PRIVATE d3d11 d3dcompiler)
+    endif()
+endif()
+
 # ---------------------------------------------------------------------------
 # Compiler warnings
 # ---------------------------------------------------------------------------
@@ -181,6 +196,39 @@ install(TARGETS magnaundasoni
     RUNTIME  DESTINATION bin
 )
 install(FILES ${MAG_PUBLIC_HEADER} DESTINATION include)
+
+# ---------------------------------------------------------------------------
+# Profiling host executable
+# ---------------------------------------------------------------------------
+if(MAGNAUNDASONI_BUILD_PROFILER_HOST)
+    add_executable(magnaundasoni_profiler
+        tools/profiler_host.cpp
+    )
+
+    target_include_directories(magnaundasoni_profiler
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+
+    target_link_libraries(magnaundasoni_profiler
+        PRIVATE
+            magnaundasoni
+    )
+
+    set_target_properties(magnaundasoni_profiler PROPERTIES
+        CXX_STANDARD ${CMAKE_CXX_STANDARD}
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+    )
+
+    if(MSVC)
+        target_compile_options(magnaundasoni_profiler PRIVATE /W4 /wd4100)
+    else()
+        target_compile_options(magnaundasoni_profiler PRIVATE
+            -Wall -Wextra -Wpedantic -Wno-unused-parameter
+        )
+    endif()
+endif()
 
 # ---------------------------------------------------------------------------
 # Unit tests (Catch2 via FetchContent)

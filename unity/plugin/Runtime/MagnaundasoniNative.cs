@@ -31,7 +31,8 @@ namespace Magnaundasoni
         Auto        = 0,
         SoftwareBVH = 1,
         DXR         = 2,
-        VulkanRT    = 3
+        VulkanRT    = 3,
+        Compute     = 4
     }
 
     public enum MagDynamicFlag : uint
@@ -305,6 +306,17 @@ namespace Magnaundasoni
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    public struct MagBackendDiagnostics
+    {
+        public MagBackendType requestedBackend;
+        public MagBackendType activeBackend;
+        public uint computeAvailable;
+        public uint computeEnabled;
+        public uint usingExternalD3D11Device;
+        public uint lastSceneSyncSucceeded;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     public struct MagSpeakerLayout
     {
         public MagSpeakerLayoutPreset preset;
@@ -432,10 +444,22 @@ namespace Magnaundasoni
         public static extern MagStatus mag_get_global_state(
             IntPtr engine, out MagGlobalState outState);
 
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MagStatus mag_get_backend_diagnostics(
+            IntPtr engine, out MagBackendDiagnostics outDiagnostics);
+
         // Quality
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern MagStatus mag_set_quality(
             IntPtr engine, MagQualityLevel level);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MagStatus mag_set_d3d11_device(
+            IntPtr engine, IntPtr d3d11Device, IntPtr d3d11DeviceContext);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MagStatus mag_bind_unity_graphics_device(
+            IntPtr engine);
 
         // Debug
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
@@ -598,6 +622,17 @@ namespace Magnaundasoni
         public static void SetQuality(IntPtr engine, MagQualityLevel level)
         {
             Check(MagnaundasoniNative.mag_set_quality(engine, level));
+        }
+
+        public static MagBackendDiagnostics GetBackendDiagnostics(IntPtr engine)
+        {
+            Check(MagnaundasoniNative.mag_get_backend_diagnostics(engine, out MagBackendDiagnostics diagnostics));
+            return diagnostics;
+        }
+
+        public static void BindUnityGraphicsDevice(IntPtr engine)
+        {
+            Check(MagnaundasoniNative.mag_bind_unity_graphics_device(engine));
         }
 
         public static uint DebugGetRayCount(IntPtr engine)

@@ -70,7 +70,8 @@ typedef enum {
     MAG_BACKEND_AUTO         = 0,
     MAG_BACKEND_SOFTWARE_BVH = 1,
     MAG_BACKEND_DXR          = 2,
-    MAG_BACKEND_VULKAN_RT    = 3
+    MAG_BACKEND_VULKAN_RT    = 3,
+    MAG_BACKEND_COMPUTE      = 4
 } MagBackendType;
 
 /* ------------------------------------------------------------------ */
@@ -256,6 +257,15 @@ typedef struct {
     float           cpuTimeMs;
 } MagGlobalState;
 
+typedef struct {
+    MagBackendType requestedBackend;
+    MagBackendType activeBackend;
+    uint32_t       computeAvailable;
+    uint32_t       computeEnabled;
+    uint32_t       usingExternalD3D11Device;
+    uint32_t       lastSceneSyncSucceeded;
+} MagBackendDiagnostics;
+
 /* ------------------------------------------------------------------ */
 /* Default configuration                                              */
 /* ------------------------------------------------------------------ */
@@ -361,11 +371,21 @@ MAG_API MagStatus mag_get_acoustic_result(MagEngine engine,
                                           MagAcousticResult* outResult);
 MAG_API MagStatus mag_get_global_state(MagEngine engine,
                                        MagGlobalState* outState);
+MAG_API MagStatus mag_get_backend_diagnostics(MagEngine engine,
+                                              MagBackendDiagnostics* outDiagnostics);
 
 /* ------------------------------------------------------------------ */
 /* Quality control                                                    */
 /* ------------------------------------------------------------------ */
 MAG_API MagStatus mag_set_quality(MagEngine engine, MagQualityLevel level);
+
+/* ------------------------------------------------------------------ */
+/* Graphics backend interop                                           */
+/* ------------------------------------------------------------------ */
+MAG_API MagStatus mag_set_d3d11_device(MagEngine engine,
+                                       void* d3d11Device,
+                                       void* d3d11DeviceContext);
+MAG_API MagStatus mag_bind_unity_graphics_device(MagEngine engine);
 
 /* ------------------------------------------------------------------ */
 /* Debug helpers                                                      */

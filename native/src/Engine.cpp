@@ -6,6 +6,7 @@
 #include "Magnaundasoni.h"
 
 #include "core/BVH.h"
+#include "backends/ComputeBackend.h"
 #include "core/ChunkManager.h"
 #include "core/EdgeExtractor.h"
 #include "core/MaterialPresets.h"
@@ -13,10 +14,12 @@
 #include "core/SpatialGrid.h"
 #include "core/ThreadPool.h"
 #include "core/Types.h"
+#include "render/AcousticRenderer.h"
 #include "spatial/HRTFDatabase.h"
 #include "spatial/Quaternion.h"
 #include "spatial/SpatialConfig.h"
 
+#include <algorithm>
 #include <atomic>
 #include <array>
 #include <chrono>
@@ -28,6 +31,19 @@
 
 using namespace magnaundasoni;
 
+namespace {
+constexpr int kUnityGfxDeviceEventInitialize = 0;
+constexpr int kUnityGfxDeviceEventShutdown = 1;
+constexpr int kUnityGfxDeviceEventBeforeReset = 2;
+constexpr int kUnityGfxDeviceEventAfterReset = 3;
+constexpr int kUnityGfxRendererD3D11 = 2;
+constexpr int kUnityGfxRendererD3D12 = 18;
+
+std::mutex g_unityGraphicsMutex;
+void* g_unityGraphicsDevice = nullptr;
+int g_unityGraphicsRenderer = -1;
+} // namespace
+
 /* ------------------------------------------------------------------ */
 /* Internal engine state                                              */
 /* ------------------------------------------------------------------ */
@@ -35,6 +51,7 @@ struct MagEngine_T {
     MagEngineConfig  config{};
     MagQualityLevel  activeQuality = MAG_QUALITY_MEDIUM;
     MagBackendType   backendUsed   = MAG_BACKEND_SOFTWARE_BVH;
+    MagBackendType   requestedBackend = MAG_BACKEND_AUTO;
 
     Scene            scene;
     BVH              bvh;
@@ -42,16 +59,19 @@ struct MagEngine_T {
     std::unique_ptr<ChunkManager> chunkManager;
     EdgeExtractor    edgeExtractor;
     std::unique_ptr<ThreadPool>   threadPool;
+    std::unique_ptr<ComputeBackend> computeBackend;
+    AcousticRenderer acousticRenderer;
 
     // Per-frame stats
     std::atomic<uint32_t> lastRayCount{0};
     std::atomic<uint32_t> lastEdgeCount{0};
+    uint64_t              lastBuiltGeometryRevision = 0;
+    bool                  lastSceneSyncSucceeded = false;
     double                timestamp = 0.0;
     float                 lastCpuTimeMs = 0.0f;
 
-    // Cached results (source,listener) -> result
-    std::mutex resultMutex;
-    std::unordered_map<uint64_t, MagAcousticResult> cachedResults;
+    void*                 externalD3D11Device = nullptr;
+    void*                 externalD3D11DeviceContext = nullptr;
 
     std::mutex spatialMutex;
     MagSpatialConfig spatialConfig = defaultSpatialConfig();
@@ -63,10 +83,6 @@ struct MagEngine_T {
 /* ------------------------------------------------------------------ */
 /* Helpers                                                            */
 /* ------------------------------------------------------------------ */
-static inline uint64_t pairKey(uint32_t a, uint32_t b) {
-    return (static_cast<uint64_t>(a) << 32) | b;
-}
-
 static Vec3 toVec3(const float* p) { return {p[0], p[1], p[2]}; }
 
 /** Build the global BVH from all registered geometry. */
@@ -101,6 +117,85 @@ static void rebuildBVH(MagEngine_T* e) {
     }
 
     e->bvh.build(allTris);
+    e->lastBuiltGeometryRevision = e->scene.geometryRevision();
+    if (e->computeBackend && e->computeBackend->available()) {
+        e->lastSceneSyncSucceeded = e->computeBackend->syncScene(e->bvh);
+    } else {
+        e->lastSceneSyncSucceeded = false;
+    }
+}
+
+static QualityLevel toRendererQuality(MagQualityLevel level) {
+    switch (level) {
+        case MAG_QUALITY_LOW:    return QualityLevel::Low;
+        case MAG_QUALITY_MEDIUM: return QualityLevel::Medium;
+        case MAG_QUALITY_HIGH:   return QualityLevel::High;
+        case MAG_QUALITY_ULTRA:  return QualityLevel::Ultra;
+    }
+
+    return QualityLevel::High;
+}
+
+static AcousticRenderer::Config makeRendererConfig(const MagEngine_T* engine) {
+    AcousticRenderer::Config config;
+    config.quality = toRendererQuality(engine->activeQuality);
+    config.maxReflectionOrder = std::max(1u, engine->config.maxReflectionOrder);
+    config.maxDiffractionDepth = std::max(1u, engine->config.maxDiffractionDepth);
+    config.raysPerSource = (engine->config.raysPerSource > 0) ? engine->config.raysPerSource : 64;
+    config.effectiveBandCount = engine->config.effectiveBandCount;
+    return config;
+}
+
+static bool ensureComputeBackend(MagEngine_T* engine) {
+    if (!engine->computeBackend)
+        engine->computeBackend = createComputeBackend();
+
+    if (!engine->computeBackend)
+        return false;
+
+    if (engine->externalD3D11Device || engine->externalD3D11DeviceContext) {
+        if (!engine->computeBackend->attachExternalD3D11Device(
+                engine->externalD3D11Device,
+                engine->externalD3D11DeviceContext)) {
+            return false;
+        }
+    }
+
+    if (!engine->computeBackend->available())
+        return false;
+
+    engine->acousticRenderer.setComputeBackend(engine->computeBackend.get());
+    return true;
+}
+
+static void selectBackend(MagEngine_T* engine) {
+    engine->requestedBackend = engine->config.preferredBackend;
+    engine->backendUsed = MAG_BACKEND_SOFTWARE_BVH;
+    engine->acousticRenderer.setComputeBackend(nullptr);
+
+    auto tryCompute = [engine]() {
+        return ensureComputeBackend(engine);
+    };
+
+    switch (engine->requestedBackend) {
+        case MAG_BACKEND_COMPUTE:
+            if (tryCompute()) engine->backendUsed = MAG_BACKEND_COMPUTE;
+            break;
+        case MAG_BACKEND_DXR:
+        case MAG_BACKEND_VULKAN_RT:
+            if (tryCompute()) engine->backendUsed = MAG_BACKEND_COMPUTE;
+            break;
+        case MAG_BACKEND_AUTO:
+            if (tryCompute()) engine->backendUsed = MAG_BACKEND_COMPUTE;
+            break;
+        case MAG_BACKEND_SOFTWARE_BVH:
+        default:
+            break;
+    }
+
+    if (engine->backendUsed == MAG_BACKEND_COMPUTE && !engine->bvh.empty()) {
+        engine->lastSceneSyncSucceeded = engine->computeBackend->syncScene(engine->bvh);
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -133,12 +228,7 @@ MagStatus mag_engine_create(const MagEngineConfig* config, MagEngine* outEngine)
 
     engine->config        = *config;
     engine->activeQuality = config->quality;
-
-    // Select backend
-    if (config->preferredBackend == MAG_BACKEND_AUTO)
-        engine->backendUsed = MAG_BACKEND_SOFTWARE_BVH;
-    else
-        engine->backendUsed = config->preferredBackend;
+    engine->requestedBackend = config->preferredBackend;
 
     // Configure chunk manager
     float chunkSize = (config->worldChunkSize > 0.0f) ? config->worldChunkSize : 32.0f;
@@ -147,25 +237,31 @@ MagStatus mag_engine_create(const MagEngineConfig* config, MagEngine* outEngine)
 
     // Thread pool (0 = auto)
     engine->threadPool = std::make_unique<ThreadPool>(config->threadCount);
+    engine->acousticRenderer.setThreadPool(engine->threadPool.get());
+    engine->acousticRenderer.configure(makeRendererConfig(engine));
+    selectBackend(engine);
 
     *outEngine = engine;
     return MAG_OK;
 }
 
+MagStatus mag_get_backend_diagnostics(MagEngine engine,
+                                      MagBackendDiagnostics* outDiagnostics) {
+    if (!engine || !outDiagnostics) return MAG_INVALID_PARAM;
+
+    outDiagnostics->requestedBackend = engine->requestedBackend;
+    outDiagnostics->activeBackend = engine->backendUsed;
+    outDiagnostics->computeAvailable =
+        (engine->computeBackend && engine->computeBackend->available()) ? 1u : 0u;
+    outDiagnostics->computeEnabled = (engine->backendUsed == MAG_BACKEND_COMPUTE) ? 1u : 0u;
+    outDiagnostics->usingExternalD3D11Device =
+        (engine->computeBackend && engine->computeBackend->usingExternalD3D11Device()) ? 1u : 0u;
+    outDiagnostics->lastSceneSyncSucceeded = engine->lastSceneSyncSucceeded ? 1u : 0u;
+    return MAG_OK;
+}
+
 MagStatus mag_engine_destroy(MagEngine engine) {
     if (!engine) return MAG_INVALID_PARAM;
-
-    // Free any cached reflection/diffraction arrays
-    {
-        std::lock_guard lock(engine->resultMutex);
-        for (auto& [key, res] : engine->cachedResults) {
-            delete[] res.reflections;
-            delete[] res.diffractions;
-            res.reflections = nullptr;
-            res.diffractions = nullptr;
-        }
-        engine->cachedResults.clear();
-    }
 
     delete engine;
     return MAG_OK;
@@ -417,8 +513,9 @@ MagStatus mag_update(MagEngine engine, float deltaTime) {
 
     auto t0 = std::chrono::high_resolution_clock::now();
 
-    // Rebuild BVH (in production this would be incremental)
-    rebuildBVH(engine);
+    if (engine->lastBuiltGeometryRevision != engine->scene.geometryRevision()) {
+        rebuildBVH(engine);
+    }
 
     // Update chunk fidelity around the first active listener
     auto listenerIDs = engine->scene.getActiveListenerIDs();
@@ -429,184 +526,10 @@ MagStatus mag_update(MagEngine engine, float deltaTime) {
         }
     }
 
-    auto sourceIDs = engine->scene.getActiveSourceIDs();
-    uint32_t totalRays = 0;
-    uint32_t totalEdges = 0;
+    engine->acousticRenderer.update(engine->scene, engine->bvh, engine->edgeExtractor, deltaTime);
 
-    // Clear old cached results
-    {
-        std::lock_guard lock(engine->resultMutex);
-        for (auto& [key, res] : engine->cachedResults) {
-            delete[] res.reflections;
-            delete[] res.diffractions;
-            res.reflections = nullptr;
-            res.diffractions = nullptr;
-        }
-        engine->cachedResults.clear();
-    }
-
-    // For each source × listener pair, trace rays and compute acoustic result
-    for (uint32_t sid : sourceIDs) {
-        const SourceEntry* src = engine->scene.getSource(sid);
-        if (!src) continue;
-
-        for (uint32_t lid : listenerIDs) {
-            const ListenerEntry* lis = engine->scene.getListener(lid);
-            if (!lis) continue;
-
-            MagAcousticResult result{};
-
-            // --- Direct path ---
-            Vec3 toListener = lis->position - src->position;
-            float dist = toListener.length();
-            Vec3 dir = (dist > 1e-6f) ? toListener / dist : Vec3{0, 0, 1};
-
-            result.direct.delay = dist / 343.0f; // speed of sound
-            result.direct.direction[0] = dir.x;
-            result.direct.direction[1] = dir.y;
-            result.direct.direction[2] = dir.z;
-            result.direct.confidence = 1.0f;
-
-            // Occlusion test
-            Ray occRay;
-            occRay.origin    = src->position;
-            occRay.direction = dir;
-            occRay.tMin      = 0.001f;
-            occRay.tMax      = dist - 0.001f;
-
-            bool occluded = engine->bvh.intersectAny(occRay);
-            float occlusionFactor = occluded ? 0.2f : 1.0f;
-            float lpf = occluded ? 2000.0f : 0.0f;
-
-            result.direct.occlusionLPF = lpf;
-
-            // Distance attenuation per band (1/r² with air absorption at HF)
-            float invDistSq = 1.0f / (dist * dist + 1.0f);
-            static const float airAbsorption[MAG_MAX_BANDS] =
-                {0.001f, 0.002f, 0.005f, 0.01f, 0.02f, 0.05f, 0.10f, 0.15f};
-            for (int b = 0; b < MAG_MAX_BANDS; ++b) {
-                float air = std::exp(-airAbsorption[b] * dist);
-                result.direct.perBandGain[b] = invDistSq * air * occlusionFactor;
-            }
-            totalRays++;
-
-            // --- Reflections (simple first-order) ---
-            uint32_t raysPerSource = engine->config.raysPerSource;
-            if (raysPerSource == 0) raysPerSource = 64;
-
-            std::vector<MagReflectionTap> reflections;
-
-            for (uint32_t r = 0; r < raysPerSource; ++r) {
-                // Fibonacci sphere distribution
-                float golden = 2.399963f; // pi*(1+sqrt(5))
-                float theta = golden * r;
-                float phi = std::acos(1.0f - 2.0f * (r + 0.5f) / static_cast<float>(raysPerSource));
-
-                Vec3 rayDir{std::sin(phi) * std::cos(theta),
-                            std::sin(phi) * std::sin(theta),
-                            std::cos(phi)};
-
-                Ray ray;
-                ray.origin    = src->position;
-                ray.direction = rayDir;
-                ray.tMin      = 0.001f;
-                ray.tMax      = 500.0f;
-
-                HitResult hit = engine->bvh.intersect(ray);
-                if (!hit.hit) { totalRays++; continue; }
-
-                // Reflect towards listener
-                Vec3 reflPoint = hit.hitPoint;
-                Vec3 toL = lis->position - reflPoint;
-                float reflDist = toL.length();
-                Vec3 reflDir = (reflDist > 1e-6f) ? toL / reflDist : Vec3{0, 1, 0};
-
-                // Check if reflected path is unoccluded
-                Ray reflRay;
-                reflRay.origin    = reflPoint + hit.normal * 0.01f;
-                reflRay.direction = reflDir;
-                reflRay.tMin      = 0.001f;
-                reflRay.tMax      = reflDist - 0.001f;
-
-                if (!engine->bvh.intersectAny(reflRay)) {
-                    float totalDist = hit.distance + reflDist;
-                    float totalInvSq = 1.0f / (totalDist * totalDist + 1.0f);
-
-                    MagReflectionTap tap{};
-                    tap.tapID = r;
-                    tap.delay = totalDist / 343.0f;
-                    tap.direction[0] = reflDir.x;
-                    tap.direction[1] = reflDir.y;
-                    tap.direction[2] = reflDir.z;
-                    tap.order = 1;
-                    tap.stability = 0.8f;
-
-                    // Per-band energy accounting for material absorption
-                    const MaterialEntry* mat = engine->scene.getMaterial(hit.materialID);
-                    for (int b = 0; b < MAG_MAX_BANDS; ++b) {
-                        float refl = 1.0f;
-                        if (mat) refl = 1.0f - mat->absorption[b];
-                        float air = std::exp(-airAbsorption[b] * totalDist);
-                        tap.perBandEnergy[b] = totalInvSq * refl * air;
-                    }
-
-                    reflections.push_back(tap);
-                }
-                totalRays++;
-            }
-
-            // Copy reflections into heap-allocated array
-            result.reflectionCount = static_cast<uint32_t>(reflections.size());
-            if (!reflections.empty()) {
-                result.reflections = new (std::nothrow) MagReflectionTap[reflections.size()];
-                if (result.reflections) {
-                    std::memcpy(result.reflections, reflections.data(),
-                                reflections.size() * sizeof(MagReflectionTap));
-                }
-            }
-
-            // --- Late-field estimate ---
-            // Rough RT60 based on average absorption
-            for (int b = 0; b < MAG_MAX_BANDS; ++b) {
-                float bandAvg = 0.0f;
-                int matCount = 0;
-                // Average over all registered materials
-                auto geoIDs = engine->scene.getAllGeometryIDs();
-                for (uint32_t gid : geoIDs) {
-                    const GeometryEntry* geo = engine->scene.getGeometry(gid);
-                    if (!geo) continue;
-                    const MaterialEntry* m = engine->scene.getMaterial(geo->materialID);
-                    if (m) { bandAvg += m->absorption[b]; matCount++; }
-                }
-                if (matCount > 0) bandAvg /= static_cast<float>(matCount);
-
-                float alpha = std::max(bandAvg, 0.01f);
-                // Sabine equation: RT60 = 0.161 * V / (S * alpha)
-                // We estimate room size from the BVH bounds
-                float roomEst = 1000.0f; // cubic metres fallback
-                float surfEst = 600.0f;  // square metres fallback
-                result.lateField.rt60[b] = 0.161f * roomEst / (surfEst * alpha);
-                result.lateField.perBandDecay[b] = alpha;
-            }
-            result.lateField.roomSizeEstimate = 1000.0f;
-            result.lateField.diffuseDirectionality = 0.3f;
-
-            // --- Diffraction (stub: no edges for now, count is 0) ---
-            result.diffractionCount = 0;
-            result.diffractions = nullptr;
-
-            // Cache
-            {
-                std::lock_guard lock(engine->resultMutex);
-                engine->cachedResults[pairKey(sid, lid)] = result;
-            }
-
-            totalEdges += 0; // placeholder for real edge count
-        }
-    }
-
-    engine->lastRayCount.store(totalRays, std::memory_order_relaxed);
-    engine->lastEdgeCount.store(totalEdges, std::memory_order_relaxed);
+    engine->lastRayCount.store(engine->acousticRenderer.getActiveRayCount(), std::memory_order_relaxed);
+    engine->lastEdgeCount.store(engine->acousticRenderer.getActiveEdgeCount(), std::memory_order_relaxed);
     engine->timestamp += static_cast<double>(deltaTime);
 
     auto t1 = std::chrono::high_resolution_clock::now();
@@ -624,12 +547,9 @@ MagStatus mag_get_acoustic_result(MagEngine engine,
                                   MagAcousticResult* outResult) {
     if (!engine || !outResult) return MAG_INVALID_PARAM;
 
-    std::lock_guard lock(engine->resultMutex);
-    auto it = engine->cachedResults.find(pairKey(sourceID, listenerID));
-    if (it == engine->cachedResults.end()) return MAG_ERROR;
-
-    *outResult = it->second;
-    return MAG_OK;
+    return engine->acousticRenderer.copyResult(sourceID, listenerID, *outResult)
+        ? MAG_OK
+        : MAG_ERROR;
 }
 
 MagStatus mag_get_global_state(MagEngine engine, MagGlobalState* outState) {
@@ -659,7 +579,53 @@ MagStatus mag_set_quality(MagEngine engine, MagQualityLevel level) {
         case MAG_QUALITY_ULTRA:  engine->config.raysPerSource = 256; break;
     }
 
+    engine->acousticRenderer.configure(makeRendererConfig(engine));
+    selectBackend(engine);
+
     return MAG_OK;
+}
+
+MagStatus mag_set_d3d11_device(MagEngine engine,
+                               void* d3d11Device,
+                               void* d3d11DeviceContext) {
+    if (!engine) return MAG_INVALID_PARAM;
+
+    engine->externalD3D11Device = d3d11Device;
+    engine->externalD3D11DeviceContext = d3d11DeviceContext;
+    selectBackend(engine);
+    return MAG_OK;
+}
+
+MagStatus mag_bind_unity_graphics_device(MagEngine engine) {
+    if (!engine) return MAG_INVALID_PARAM;
+
+    std::lock_guard lock(g_unityGraphicsMutex);
+    if (g_unityGraphicsRenderer == kUnityGfxRendererD3D11) {
+        return mag_set_d3d11_device(engine, g_unityGraphicsDevice, nullptr);
+    }
+
+    if (g_unityGraphicsRenderer == kUnityGfxRendererD3D12) {
+        engine->externalD3D11Device = nullptr;
+        engine->externalD3D11DeviceContext = nullptr;
+        selectBackend(engine);
+        return MAG_OK;
+    }
+
+    return MAG_OK;
+}
+
+extern "C" MAG_API void UnitySetGraphicsDevice(void* device, int deviceType, int eventType) {
+    std::lock_guard lock(g_unityGraphicsMutex);
+
+    if (eventType == kUnityGfxDeviceEventInitialize ||
+        eventType == kUnityGfxDeviceEventAfterReset) {
+        g_unityGraphicsDevice = device;
+        g_unityGraphicsRenderer = deviceType;
+    } else if (eventType == kUnityGfxDeviceEventShutdown ||
+               eventType == kUnityGfxDeviceEventBeforeReset) {
+        g_unityGraphicsDevice = nullptr;
+        g_unityGraphicsRenderer = deviceType;
+    }
 }
 
 /* ------------------------------------------------------------------ */

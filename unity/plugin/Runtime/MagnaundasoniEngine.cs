@@ -216,8 +216,11 @@ namespace Magnaundasoni
             try
             {
                 _engineHandle = MagAPI.EngineCreate(config);
+                MagAPI.BindUnityGraphicsDevice(_engineHandle);
+                var diagnostics = MagAPI.GetBackendDiagnostics(_engineHandle);
                 Debug.Log("[Magnaundasoni] Engine initialized " +
-                    $"(quality={_quality}, backend={_backend}, bands={_effectiveBandCount})");
+                    $"(quality={_quality}, requestedBackend={_backend}, activeBackend={diagnostics.activeBackend}, " +
+                    $"computeEnabled={diagnostics.computeEnabled != 0}, externalD3D11={diagnostics.usingExternalD3D11Device != 0}, bands={_effectiveBandCount})");
             }
             catch (MagnaundasoniException ex)
             {

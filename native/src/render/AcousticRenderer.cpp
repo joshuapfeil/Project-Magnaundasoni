@@ -5,11 +5,20 @@
 
 #include "AcousticRenderer.h"
 
+#include "../backends/ComputeBackend.h"
+#include "../core/ThreadPool.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstring>
 
 namespace magnaundasoni {
+
+uint32_t AcousticRenderer::reflectionBatchStride() const {
+    if (config_.raysPerSource >= 256) return 4;
+    if (config_.raysPerSource >= 128) return 2;
+    return 1;
+}
 
 AcousticRenderer::AcousticRenderer() {
     configure(Config{});
@@ -17,6 +26,11 @@ AcousticRenderer::AcousticRenderer() {
 
 AcousticRenderer::~AcousticRenderer() {
     // Nothing dynamic to free beyond what the maps own
+}
+
+void AcousticRenderer::setComputeBackend(ComputeBackend* computeBackend) {
+    reflectionSolver_.setComputeBackend(computeBackend);
+    diffractionSolver_.setComputeBackend(computeBackend);
 }
 
 void AcousticRenderer::configure(const Config& config) {
@@ -88,46 +102,21 @@ void AcousticRenderer::update(Scene& scene, const BVH& bvh,
     activeEdgeCount_ = 0;
 
     // Extract edges once per frame (reuse across pairs)
-    if (!bvh.empty()) {
-        // Build triangle list for edge extraction
-        // We use the BVH's triangle set; but EdgeExtractor needs the triangles.
-        // Since BVH owns them internally and EdgeExtractor wants a vector,
-        // we reconstruct from the scene geometry.
-        std::vector<Triangle> tris;
-        auto geoIDs = scene.getAllGeometryIDs();
-        for (uint32_t gid : geoIDs) {
-            const GeometryEntry* geo = scene.getGeometry(gid);
-            if (!geo || geo->vertices.empty() || geo->indices.empty()) continue;
-
-            for (uint32_t i = 0; i + 2 < static_cast<uint32_t>(geo->indices.size()); i += 3) {
-                uint32_t i0 = geo->indices[i + 0];
-                uint32_t i1 = geo->indices[i + 1];
-                uint32_t i2 = geo->indices[i + 2];
-                if (i0 >= geo->vertices.size() / 3 ||
-                    i1 >= geo->vertices.size() / 3 ||
-                    i2 >= geo->vertices.size() / 3) continue;
-
-                Triangle tri;
-                tri.v0 = geo->transform.transformPoint(
-                    {geo->vertices[i0*3], geo->vertices[i0*3+1], geo->vertices[i0*3+2]});
-                tri.v1 = geo->transform.transformPoint(
-                    {geo->vertices[i1*3], geo->vertices[i1*3+1], geo->vertices[i1*3+2]});
-                tri.v2 = geo->transform.transformPoint(
-                    {geo->vertices[i2*3], geo->vertices[i2*3+1], geo->vertices[i2*3+2]});
-                tri.normal = (tri.v1 - tri.v0).cross(tri.v2 - tri.v0).normalized();
-                tri.materialID = geo->materialID;
-                tri.geometryID = gid;
-                tris.push_back(tri);
-            }
-        }
-
-        cachedEdges_ = edgeExtractor.extractEdges(tris);
-    } else {
+    uint64_t geometryRevision = scene.geometryRevision();
+    if (bvh.empty()) {
         cachedEdges_.clear();
+        cachedEdgesGeometryRevision_ = geometryRevision;
+    } else if (cachedEdgesGeometryRevision_ != geometryRevision) {
+        // BVH already holds the built triangle list. Use it directly to avoid
+        // reconstructing triangles from the Scene each frame which is costly.
+        cachedEdges_ = edgeExtractor.extractEdges(bvh.triangles());
+        cachedEdgesGeometryRevision_ = geometryRevision;
     }
 
     // Run pipeline stages
     computeDirectPaths(scene, bvh);
+    uint32_t batchStride = reflectionBatchStride();
+    reflectionSolver_.setRayBatch(static_cast<uint32_t>(updateIndex_ % batchStride), batchStride);
     computeReflections(scene, bvh);
     computeDiffraction(scene, bvh, edgeExtractor);
     computeLateField(scene);
@@ -144,40 +133,99 @@ void AcousticRenderer::update(Scene& scene, const BVH& bvh,
         }
     }
     outputMixer_.commitStaged();
+    updateIndex_++;
 
     auto t1 = std::chrono::high_resolution_clock::now();
     lastUpdateTimeMs_ = std::chrono::duration<float, std::milli>(t1 - t0).count();
 }
 
 void AcousticRenderer::computeDirectPaths(Scene& scene, const BVH& bvh) {
-    for (auto& pair : pairs_) {
-        pair.directResult = directSolver_.solve(
-            pair.sourcePos, pair.listenerPos, bvh, scene);
-        activeRayCount_++; // one ray per direct path
+    if (threadPool_ && threadPool_->threadCount() > 1 && pairs_.size() > 1) {
+        std::vector<std::function<void()>> tasks;
+        tasks.reserve(pairs_.size());
+
+        for (size_t i = 0; i < pairs_.size(); ++i) {
+            tasks.emplace_back([this, &scene, &bvh, i]() {
+                auto& pair = pairs_[i];
+                pair.directResult = directSolver_.solve(
+                    pair.sourcePos, pair.listenerPos, bvh, scene);
+            });
+        }
+
+        threadPool_->submitBatch(tasks);
+    } else {
+        for (auto& pair : pairs_) {
+            pair.directResult = directSolver_.solve(
+                pair.sourcePos, pair.listenerPos, bvh, scene);
+        }
     }
+
+    activeRayCount_ += static_cast<uint32_t>(pairs_.size());
 }
 
 void AcousticRenderer::computeReflections(Scene& scene, const BVH& bvh) {
-    for (auto& pair : pairs_) {
-        pair.reflectionTaps = reflectionSolver_.solve(
-            pair.sourcePos, pair.listenerPos, bvh, scene);
-        pair.reflStats = reflectionSolver_.getLastStats();
+    if (threadPool_ && threadPool_->threadCount() > 1 && pairs_.size() > 1) {
+        std::vector<std::function<void()>> tasks;
+        tasks.reserve(pairs_.size());
+
+        for (size_t i = 0; i < pairs_.size(); ++i) {
+            tasks.emplace_back([this, &scene, &bvh, i]() {
+                auto& pair = pairs_[i];
+                ReflectionSolver solver = reflectionSolver_;
+                pair.reflectionTaps = solver.solve(
+                    pair.sourcePos, pair.listenerPos, bvh, scene);
+                pair.reflStats = solver.getLastStats();
+            });
+        }
+
+        threadPool_->submitBatch(tasks);
+    } else {
+        for (auto& pair : pairs_) {
+            pair.reflectionTaps = reflectionSolver_.solve(
+                pair.sourcePos, pair.listenerPos, bvh, scene);
+            pair.reflStats = reflectionSolver_.getLastStats();
+        }
+    }
+
+    for (const auto& pair : pairs_) {
         activeRayCount_ += pair.reflStats.totalRays;
     }
 }
 
 void AcousticRenderer::computeDiffraction(Scene& scene, const BVH& bvh,
                                            const EdgeExtractor& edgeExtractor) {
-    for (auto& pair : pairs_) {
-        // Prune edges relevant to this pair
-        auto relevantEdges = edgeExtractor.pruneEdges(
-            cachedEdges_, pair.sourcePos, pair.listenerPos,
-            config_.maxDiffractionTaps * 4);
+    if (threadPool_ && threadPool_->threadCount() > 1 && pairs_.size() > 1) {
+        std::vector<std::function<void()>> tasks;
+        tasks.reserve(pairs_.size());
 
-        pair.diffractionTaps = diffractionSolver_.solve(
-            pair.sourcePos, pair.listenerPos, relevantEdges, bvh);
+        for (size_t i = 0; i < pairs_.size(); ++i) {
+            tasks.emplace_back([this, &bvh, &edgeExtractor, i]() {
+                auto& pair = pairs_[i];
+                auto relevantEdges = edgeExtractor.pruneEdges(
+                    cachedEdges_, pair.sourcePos, pair.listenerPos,
+                    config_.maxDiffractionTaps * 4);
 
-        activeEdgeCount_ += static_cast<uint32_t>(relevantEdges.size());
+                pair.diffractionEdgeCount = static_cast<uint32_t>(relevantEdges.size());
+                pair.diffractionTaps = diffractionSolver_.solve(
+                    pair.sourcePos, pair.listenerPos, relevantEdges, bvh);
+            });
+        }
+
+        threadPool_->submitBatch(tasks);
+    } else {
+        for (auto& pair : pairs_) {
+            auto relevantEdges = edgeExtractor.pruneEdges(
+                cachedEdges_, pair.sourcePos, pair.listenerPos,
+                config_.maxDiffractionTaps * 4);
+
+            pair.diffractionEdgeCount = static_cast<uint32_t>(relevantEdges.size());
+            pair.diffractionTaps = diffractionSolver_.solve(
+                pair.sourcePos, pair.listenerPos, relevantEdges, bvh);
+        }
+    }
+
+    for (const auto& pair : pairs_) {
+        activeEdgeCount_ += pair.diffractionEdgeCount;
     }
 }
 
@@ -268,6 +316,17 @@ const MagAcousticResult* AcousticRenderer::getResult(uint32_t sourceID,
     auto it = results_.find(makePairKey(sourceID, listenerID));
     if (it == results_.end()) return nullptr;
     return &it->second;
+}
+
+bool AcousticRenderer::copyResult(uint32_t sourceID,
+                                  uint32_t listenerID,
+                                  MagAcousticResult& outResult) const {
+    std::lock_guard<std::mutex> lock(resultMutex_);
+    auto it = results_.find(makePairKey(sourceID, listenerID));
+    if (it == results_.end()) return false;
+
+    outResult = it->second;
+    return true;
 }
 
 } // namespace magnaundasoni

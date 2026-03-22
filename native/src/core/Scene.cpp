@@ -43,12 +43,15 @@ uint32_t Scene::registerGeometry(const GeometryEntry& geo) {
                 entry.vertices[i * 3 + 2]};
         entry.bounds.expand(v);
     }
+    geometryRevision_.fetch_add(1, std::memory_order_relaxed);
     return id;
 }
 
 bool Scene::unregisterGeometry(uint32_t id) {
     std::unique_lock lock(mutex_);
-    return geometries_.erase(id) > 0;
+    if (geometries_.erase(id) == 0) return false;
+    geometryRevision_.fetch_add(1, std::memory_order_relaxed);
+    return true;
 }
 
 bool Scene::updateTransform(uint32_t id, const Mat4x4& xform) {
@@ -67,6 +70,7 @@ bool Scene::updateTransform(uint32_t id, const Mat4x4& xform) {
         newBounds.expand(world);
     }
     it->second.bounds = newBounds;
+    geometryRevision_.fetch_add(1, std::memory_order_relaxed);
     return true;
 }
 

@@ -4,6 +4,7 @@
  */
 
 #include "ReflectionSolver.h"
+#include "../backends/ComputeBackend.h"
 #include "BandProcessor.h"
 
 #include <algorithm>
@@ -89,14 +90,39 @@ std::vector<ReflectionTapInternal> ReflectionSolver::solve(
     lastStats_ = ReflectionStats{};
     std::vector<ReflectionTapInternal> taps;
 
+    if (computeBackend_ && computeBackend_->available() &&
+        solveWithComputeBackend(sourcePos, listenerPos, scene, taps)) {
+        if (lastStats_.totalHits > 0) {
+            lastStats_.meanFreePathEstimate =
+                lastStats_.totalPathLength / static_cast<float>(lastStats_.totalHits);
+        }
+
+        clusterTaps(taps);
+        std::sort(taps.begin(), taps.end(),
+            [](const ReflectionTapInternal& a, const ReflectionTapInternal& b) {
+                return BandProcessor::bandSum(a.perBandEnergy) >
+                       BandProcessor::bandSum(b.perBandEnergy);
+            });
+
+        if (taps.size() > config_.maxTaps)
+            taps.resize(config_.maxTaps);
+
+        return taps;
+    }
+
     Vec3 toListener = listenerPos - sourcePos;
     float srcListDist = toListener.length();
     if (srcListDist < 1e-6f) return taps;
 
     BandArray bandMask = BandProcessor::getEffectiveBandMask(config_.effectiveBands);
     uint32_t nextTapID = 0;
+    uint32_t rayStride = std::max(1u, rayBatchStride_);
+    uint32_t rayOffset = (config_.raysPerSource > 0)
+        ? (rayBatchOffset_ % rayStride)
+        : 0;
+    float rayWeight = static_cast<float>(rayStride);
 
-    for (uint32_t r = 0; r < config_.raysPerSource; ++r) {
+    for (uint32_t r = rayOffset; r < config_.raysPerSource; r += rayStride) {
         lastStats_.totalRays++;
 
         Vec3 rayDir = biasedRayDir(r, config_.raysPerSource, toListener);
@@ -190,7 +216,7 @@ std::vector<ReflectionTapInternal> ReflectionSolver::solve(
 
                         for (int b = 0; b < 8; ++b) {
                             tap.perBandEnergy[b] = energy[b] * distAtten *
-                                finalAir[b] * cosWeight * bandMask[b];
+                                finalAir[b] * cosWeight * bandMask[b] * rayWeight;
                         }
 
                         // Stability heuristic: earlier bounces are more stable
@@ -245,6 +271,201 @@ std::vector<ReflectionTapInternal> ReflectionSolver::solve(
     }
 
     return taps;
+}
+
+bool ReflectionSolver::solveWithComputeBackend(const Vec3& sourcePos,
+                                               const Vec3& listenerPos,
+                                               const Scene& scene,
+                                               std::vector<ReflectionTapInternal>& taps) {
+    Vec3 toListener = listenerPos - sourcePos;
+    float srcListDist = toListener.length();
+    if (srcListDist < 1e-6f) return true;
+
+    struct ActiveRay {
+        uint32_t rayIndex = 0;
+        Vec3 currentOrigin;
+        Vec3 currentDir;
+        BandArray energy = {};
+        float totalPath = 0.0f;
+    };
+
+    BandArray bandMask = BandProcessor::getEffectiveBandMask(config_.effectiveBands);
+    uint32_t nextTapID = 0;
+    uint32_t rayStride = std::max(1u, rayBatchStride_);
+    uint32_t rayOffset = (config_.raysPerSource > 0)
+        ? (rayBatchOffset_ % rayStride)
+        : 0;
+    float rayWeight = static_cast<float>(rayStride);
+
+    std::vector<ActiveRay> activeRays;
+    activeRays.reserve((config_.raysPerSource + rayStride - 1) / rayStride);
+
+    for (uint32_t r = rayOffset; r < config_.raysPerSource; r += rayStride) {
+        ActiveRay activeRay;
+        activeRay.rayIndex = r;
+        activeRay.currentOrigin = sourcePos;
+        activeRay.currentDir = biasedRayDir(r, config_.raysPerSource, toListener);
+        activeRay.energy = BandProcessor::bandFill(1.0f);
+        activeRays.push_back(activeRay);
+        lastStats_.totalRays++;
+    }
+
+    for (uint32_t bounce = 0; bounce < config_.maxReflectionOrder && !activeRays.empty(); ++bounce) {
+        std::vector<Ray> queryRays;
+        queryRays.reserve(activeRays.size());
+        std::vector<size_t> activeToRay;
+        activeToRay.reserve(activeRays.size());
+
+        for (size_t i = 0; i < activeRays.size(); ++i) {
+            Ray ray;
+            ray.origin = activeRays[i].currentOrigin;
+            ray.direction = activeRays[i].currentDir;
+            ray.tMin = 0.001f;
+            ray.tMax = config_.maxPropagationDist - activeRays[i].totalPath;
+            if (ray.tMax <= 0.0f) continue;
+
+            activeToRay.push_back(i);
+            queryRays.push_back(ray);
+        }
+
+        if (queryRays.empty()) break;
+
+        std::vector<HitResult> hitResults;
+        if (!computeBackend_->traceClosestBatch(queryRays, hitResults)) {
+            taps.clear();
+            return false;
+        }
+
+        struct VisibilityRay {
+            Ray ray;
+            size_t activeIndex = 0;
+            HitResult hit;
+            float fullPath = 0.0f;
+            float hitListDist = 0.0f;
+            Vec3 hitListDir;
+            float normalDot = 0.0f;
+        };
+
+        std::vector<VisibilityRay> visibilityRays;
+        visibilityRays.reserve(hitResults.size());
+        std::vector<ActiveRay> nextActiveRays;
+        nextActiveRays.reserve(activeRays.size());
+
+        for (size_t i = 0; i < hitResults.size(); ++i) {
+            ActiveRay activeRay = activeRays[activeToRay[i]];
+            const HitResult& hit = hitResults[i];
+            if (!hit.hit) continue;
+
+            lastStats_.totalHits++;
+            activeRay.totalPath += hit.distance;
+            lastStats_.totalPathLength += hit.distance;
+            lastStats_.totalBounces++;
+
+            const MaterialEntry* mat = scene.getMaterial(hit.materialID);
+
+            BandArray reflectivity;
+            float scatterCoeff = 0.0f;
+            if (mat) {
+                for (int b = 0; b < 8; ++b) {
+                    reflectivity[b] = 1.0f - mat->absorption[b];
+                    lastStats_.accumulatedAbsorption[b] += mat->absorption[b];
+                }
+                for (int b = 0; b < 8; ++b) scatterCoeff += mat->scattering[b];
+                scatterCoeff /= 8.0f;
+            } else {
+                reflectivity.fill(0.7f);
+                scatterCoeff = 0.3f;
+            }
+
+            activeRay.energy = BandProcessor::bandMultiply(activeRay.energy, reflectivity);
+            BandArray airAtten = BandProcessor::computeAirAbsorption(
+                hit.distance, config_.humidity, config_.temperature);
+            activeRay.energy = BandProcessor::bandMultiply(activeRay.energy, airAtten);
+
+            if (BandProcessor::bandMax(activeRay.energy) < 1e-6f) continue;
+
+            Vec3 hitToListener = listenerPos - hit.hitPoint;
+            float hitListDist = hitToListener.length();
+            if (hitListDist > 0.01f) {
+                Vec3 hitListDir = hitToListener / hitListDist;
+                float normalDot = hit.normal.dot(hitListDir);
+                if (normalDot > 0.0f) {
+                    VisibilityRay vis;
+                    vis.ray.origin = hit.hitPoint + hit.normal * 0.01f;
+                    vis.ray.direction = hitListDir;
+                    vis.ray.tMin = 0.0f;
+                    vis.ray.tMax = hitListDist - 0.01f;
+                    vis.activeIndex = nextActiveRays.size();
+                    vis.hit = hit;
+                    vis.fullPath = activeRay.totalPath + hitListDist;
+                    vis.hitListDist = hitListDist;
+                    vis.hitListDir = hitListDir;
+                    vis.normalDot = normalDot;
+                    visibilityRays.push_back(vis);
+                }
+            }
+
+            Vec3 specularDir = reflect(activeRay.currentDir, hit.normal);
+            float scatter = scatterCoeff * config_.scatteringBlend;
+            uint32_t scatterSeed = activeRay.rayIndex * 7919 + bounce * 6271;
+
+            if (scatter > 0.01f) {
+                Vec3 diffuseDir = scatterDir(hit.normal, scatterSeed);
+                activeRay.currentDir = Vec3{
+                    specularDir.x * (1.0f - scatter) + diffuseDir.x * scatter,
+                    specularDir.y * (1.0f - scatter) + diffuseDir.y * scatter,
+                    specularDir.z * (1.0f - scatter) + diffuseDir.z * scatter
+                }.normalized();
+            } else {
+                activeRay.currentDir = specularDir;
+            }
+
+            activeRay.currentOrigin = hit.hitPoint + hit.normal * 0.005f;
+            nextActiveRays.push_back(activeRay);
+        }
+
+        if (!visibilityRays.empty()) {
+            std::vector<Ray> rays;
+            rays.reserve(visibilityRays.size());
+            for (const auto& vis : visibilityRays) rays.push_back(vis.ray);
+
+            std::vector<uint8_t> occluded;
+            if (!computeBackend_->traceAnyBatch(rays, occluded)) {
+                taps.clear();
+                return false;
+            }
+
+            for (size_t i = 0; i < visibilityRays.size(); ++i) {
+                if (occluded[i]) continue;
+
+                const auto& vis = visibilityRays[i];
+                BandArray finalAir = BandProcessor::computeAirAbsorption(
+                    vis.hitListDist, config_.humidity, config_.temperature);
+                float distAtten = BandProcessor::computeDistanceAttenuation(vis.fullPath);
+
+                ReflectionTapInternal tap;
+                tap.tapID = nextTapID++;
+                tap.delay = vis.fullPath / config_.speedOfSound;
+                tap.direction = vis.hitListDir;
+                tap.order = bounce + 1;
+                tap.pathLength = vis.fullPath;
+                tap.lastHitPoint = vis.hit.hitPoint;
+                tap.stability = 1.0f / (1.0f + 0.3f * static_cast<float>(bounce));
+
+                const auto& energy = nextActiveRays[vis.activeIndex].energy;
+                for (int b = 0; b < 8; ++b) {
+                    tap.perBandEnergy[b] = energy[b] * distAtten *
+                        finalAir[b] * vis.normalDot * bandMask[b] * rayWeight;
+                }
+
+                taps.push_back(tap);
+            }
+        }
+
+        activeRays.swap(nextActiveRays);
+    }
+
+    return true;
 }
 
 void ReflectionSolver::clusterTaps(std::vector<ReflectionTapInternal>& taps) const {

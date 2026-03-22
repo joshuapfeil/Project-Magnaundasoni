@@ -65,6 +65,10 @@ public:
     Scene();
     ~Scene() = default;
 
+    uint64_t geometryRevision() const {
+        return geometryRevision_.load(std::memory_order_relaxed);
+    }
+
     // Materials
     uint32_t registerMaterial(const MaterialEntry& mat);
     const MaterialEntry* getMaterial(uint32_t id) const;
@@ -101,6 +105,7 @@ private:
     std::atomic<uint32_t> nextGeometryID_{1};
     std::atomic<uint32_t> nextSourceID_{1};
     std::atomic<uint32_t> nextListenerID_{1};
+    std::atomic<uint64_t> geometryRevision_{1};
 
     std::unordered_map<uint32_t, MaterialEntry>  materials_;
     std::unordered_map<uint32_t, GeometryEntry>  geometries_;

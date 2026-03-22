@@ -16,6 +16,8 @@
 
 namespace magnaundasoni {
 
+class ComputeBackend;
+
 /// Internal representation of a reflection tap.
 struct ReflectionTapInternal {
     uint32_t  tapID        = 0;
@@ -57,6 +59,13 @@ public:
 
     void configure(const Config& cfg) { config_ = cfg; }
 
+    void setRayBatch(uint32_t offset, uint32_t stride) {
+        rayBatchOffset_ = offset;
+        rayBatchStride_ = stride > 0 ? stride : 1;
+    }
+
+    void setComputeBackend(ComputeBackend* backend) { computeBackend_ = backend; }
+
     /// Trace reflections from source, returning sorted top-K taps.
     std::vector<ReflectionTapInternal> solve(
         const Vec3& sourcePos,
@@ -84,8 +93,16 @@ private:
     /// Cluster nearby taps and merge.
     void clusterTaps(std::vector<ReflectionTapInternal>& taps) const;
 
+    bool solveWithComputeBackend(const Vec3& sourcePos,
+                                 const Vec3& listenerPos,
+                                 const Scene& scene,
+                                 std::vector<ReflectionTapInternal>& taps);
+
     Config          config_;
     ReflectionStats lastStats_;
+    uint32_t        rayBatchOffset_ = 0;
+    uint32_t        rayBatchStride_ = 1;
+    ComputeBackend* computeBackend_ = nullptr;
 };
 
 } // namespace magnaundasoni

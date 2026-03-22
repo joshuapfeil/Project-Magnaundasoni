@@ -30,6 +30,9 @@
 
 namespace magnaundasoni {
 
+class ThreadPool;
+class ComputeBackend;
+
 class AcousticRenderer {
 public:
     struct Config {
@@ -60,6 +63,8 @@ public:
     /// Returns nullptr if no result is available.
     const MagAcousticResult* getResult(uint32_t sourceID, uint32_t listenerID) const;
 
+    bool copyResult(uint32_t sourceID, uint32_t listenerID, MagAcousticResult& outResult) const;
+
     /// Performance statistics.
     float    getLastUpdateTimeMs() const { return lastUpdateTimeMs_; }
     uint32_t getActiveRayCount()   const { return activeRayCount_; }
@@ -67,6 +72,9 @@ public:
 
     /// Access the output mixer (for audio callback integration).
     OutputMixer& getOutputMixer() { return outputMixer_; }
+
+    void setThreadPool(ThreadPool* threadPool) { threadPool_ = threadPool; }
+    void setComputeBackend(ComputeBackend* computeBackend);
 
 private:
     // Per-pair computation stages
@@ -77,6 +85,7 @@ private:
     void computeLateField(Scene& scene);
     void accumulateResults();
     void applyTemporalSmoothing(float deltaTime);
+    uint32_t reflectionBatchStride() const;
 
     // Sub-systems
     DirectPathSolver   directSolver_;
@@ -102,6 +111,7 @@ private:
         std::vector<DiffractionTapInternal>  diffractionTaps;
         LateFieldResult                      lateFieldResult;
         ReflectionStats                      reflStats;
+        uint32_t                             diffractionEdgeCount = 0;
     };
 
     std::vector<PairContext> pairs_;
@@ -124,6 +134,9 @@ private:
 
     // Cached edges per frame (reused across pairs)
     std::vector<DiffractionEdge> cachedEdges_;
+    uint64_t cachedEdgesGeometryRevision_ = 0;
+    uint64_t updateIndex_ = 0;
+    ThreadPool* threadPool_ = nullptr;
 
     static uint64_t makePairKey(uint32_t a, uint32_t b) {
         return (static_cast<uint64_t>(a) << 32) | b;

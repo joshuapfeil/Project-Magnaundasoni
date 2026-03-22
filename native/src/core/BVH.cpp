@@ -22,6 +22,9 @@ void BVH::build(const std::vector<Triangle>& triangles) {
 
     if (triangles_.empty()) return;
 
+    for (Triangle& tri : triangles_)
+        tri.updateDerivedData();
+
     // Reserve a generous amount (2N-1 is the theoretical max for a binary tree)
     nodes_.reserve(2 * triangles_.size());
 
@@ -180,10 +183,8 @@ bool BVH::rayTriangle(const Ray& ray, const Triangle& tri,
                       float& outT, float& outU, float& outV) {
     const float EPSILON = 1e-8f;
 
-    Vec3 e1 = tri.v1 - tri.v0;
-    Vec3 e2 = tri.v2 - tri.v0;
-    Vec3 h  = ray.direction.cross(e2);
-    float a = e1.dot(h);
+    Vec3 h  = ray.direction.cross(tri.e2);
+    float a = tri.e1.dot(h);
 
     if (std::abs(a) < EPSILON) return false;
 
@@ -192,11 +193,11 @@ bool BVH::rayTriangle(const Ray& ray, const Triangle& tri,
     float u = f * s.dot(h);
     if (u < 0.0f || u > 1.0f) return false;
 
-    Vec3  q = s.cross(e1);
+    Vec3  q = s.cross(tri.e1);
     float v = f * ray.direction.dot(q);
     if (v < 0.0f || u + v > 1.0f) return false;
 
-    float t = f * e2.dot(q);
+    float t = f * tri.e2.dot(q);
     if (t < ray.tMin || t > ray.tMax) return false;
 
     outT = t;
@@ -208,16 +209,20 @@ bool BVH::rayTriangle(const Ray& ray, const Triangle& tri,
 /* ------------------------------------------------------------------ */
 /* Ray–AABB slab test                                                 */
 /* ------------------------------------------------------------------ */
-bool BVH::rayAABB(const Ray& ray, const AABB& box, float tMin, float tMax) {
+bool BVH::rayAABB(const Ray& ray, const AABB& box,
+                  const Vec3& invDirection,
+                  const std::array<uint8_t, 3>& directionSign,
+                  float tMin, float tMax,
+                  float* outEntryT) {
     for (int i = 0; i < 3; ++i) {
-        float invD = 1.0f / ray.direction[i];
-        float t0 = (box.min[i] - ray.origin[i]) * invD;
-        float t1 = (box.max[i] - ray.origin[i]) * invD;
-        if (invD < 0.0f) std::swap(t0, t1);
+        float t0 = (box.min[i] - ray.origin[i]) * invDirection[i];
+        float t1 = (box.max[i] - ray.origin[i]) * invDirection[i];
+        if (directionSign[i]) std::swap(t0, t1);
         tMin = t0 > tMin ? t0 : tMin;
         tMax = t1 < tMax ? t1 : tMax;
         if (tMax < tMin) return false;
     }
+    if (outEntryT) *outEntryT = tMin;
     return true;
 }
 
@@ -227,6 +232,25 @@ bool BVH::rayAABB(const Ray& ray, const AABB& box, float tMin, float tMax) {
 HitResult BVH::intersect(const Ray& ray) const {
     HitResult result;
     if (nodes_.empty()) return result;
+
+    auto safeReciprocal = [](float v) {
+        constexpr float kMinDir = 1e-12f;
+        if (std::abs(v) < kMinDir) {
+            v = std::signbit(v) ? -kMinDir : kMinDir;
+        }
+        return 1.0f / v;
+    };
+
+    const Vec3 invDirection{
+        safeReciprocal(ray.direction.x),
+        safeReciprocal(ray.direction.y),
+        safeReciprocal(ray.direction.z)
+    };
+    const std::array<uint8_t, 3> directionSign{
+        static_cast<uint8_t>(invDirection.x < 0.0f),
+        static_cast<uint8_t>(invDirection.y < 0.0f),
+        static_cast<uint8_t>(invDirection.z < 0.0f)
+    };
 
     // Manual stack to avoid recursion
     uint32_t stack[64];
@@ -239,7 +263,7 @@ HitResult BVH::intersect(const Ray& ray) const {
         uint32_t idx = stack[--stackPtr];
         const BVHNode& node = nodes_[idx];
 
-        if (!rayAABB(ray, node.bounds, ray.tMin, closestT))
+        if (!rayAABB(ray, node.bounds, invDirection, directionSign, ray.tMin, closestT))
             continue;
 
         if (node.isLeaf) {
@@ -256,17 +280,25 @@ HitResult BVH::intersect(const Ray& ray) const {
                 }
             }
         } else {
-            // Push children; push the farther child first so the closer one is
-            // processed sooner (simple heuristic: compare AABB center distance).
             uint32_t first  = node.leftChild;
             uint32_t second = node.rightChild;
+            float firstEntryT = 0.0f;
+            float secondEntryT = 0.0f;
+            bool firstHit = rayAABB(ray, nodes_[first].bounds, invDirection,
+                                     directionSign, ray.tMin, closestT, &firstEntryT);
+            bool secondHit = rayAABB(ray, nodes_[second].bounds, invDirection,
+                                      directionSign, ray.tMin, closestT, &secondEntryT);
 
-            float dL = (nodes_[first].bounds.center() - ray.origin).dot(ray.direction);
-            float dR = (nodes_[second].bounds.center() - ray.origin).dot(ray.direction);
-            if (dL > dR) std::swap(first, second);
+            if (firstHit && secondHit) {
+                if (firstEntryT > secondEntryT) std::swap(first, second);
 
-            if (stackPtr < 63) stack[stackPtr++] = second;
-            if (stackPtr < 63) stack[stackPtr++] = first;
+                if (stackPtr < 63) stack[stackPtr++] = second;
+                if (stackPtr < 63) stack[stackPtr++] = first;
+            } else if (firstHit) {
+                if (stackPtr < 63) stack[stackPtr++] = first;
+            } else if (secondHit) {
+                if (stackPtr < 63) stack[stackPtr++] = second;
+            }
         }
     }
 
@@ -279,6 +311,25 @@ HitResult BVH::intersect(const Ray& ray) const {
 bool BVH::intersectAny(const Ray& ray) const {
     if (nodes_.empty()) return false;
 
+    auto safeReciprocal = [](float v) {
+        constexpr float kMinDir = 1e-12f;
+        if (std::abs(v) < kMinDir) {
+            v = std::signbit(v) ? -kMinDir : kMinDir;
+        }
+        return 1.0f / v;
+    };
+
+    const Vec3 invDirection{
+        safeReciprocal(ray.direction.x),
+        safeReciprocal(ray.direction.y),
+        safeReciprocal(ray.direction.z)
+    };
+    const std::array<uint8_t, 3> directionSign{
+        static_cast<uint8_t>(invDirection.x < 0.0f),
+        static_cast<uint8_t>(invDirection.y < 0.0f),
+        static_cast<uint8_t>(invDirection.z < 0.0f)
+    };
+
     uint32_t stack[64];
     int stackPtr = 0;
     stack[stackPtr++] = 0;
@@ -287,7 +338,7 @@ bool BVH::intersectAny(const Ray& ray) const {
         uint32_t idx = stack[--stackPtr];
         const BVHNode& node = nodes_[idx];
 
-        if (!rayAABB(ray, node.bounds, ray.tMin, ray.tMax))
+        if (!rayAABB(ray, node.bounds, invDirection, directionSign, ray.tMin, ray.tMax))
             continue;
 
         if (node.isLeaf) {
@@ -297,8 +348,25 @@ bool BVH::intersectAny(const Ray& ray) const {
                     return true;
             }
         } else {
-            if (stackPtr < 63) stack[stackPtr++] = node.rightChild;
-            if (stackPtr < 63) stack[stackPtr++] = node.leftChild;
+            float leftEntryT = 0.0f;
+            float rightEntryT = 0.0f;
+            bool leftHit = rayAABB(ray, nodes_[node.leftChild].bounds, invDirection,
+                                   directionSign, ray.tMin, ray.tMax, &leftEntryT);
+            bool rightHit = rayAABB(ray, nodes_[node.rightChild].bounds, invDirection,
+                                    directionSign, ray.tMin, ray.tMax, &rightEntryT);
+
+            if (leftHit && rightHit) {
+                uint32_t first = node.leftChild;
+                uint32_t second = node.rightChild;
+                if (leftEntryT > rightEntryT) std::swap(first, second);
+
+                if (stackPtr < 63) stack[stackPtr++] = second;
+                if (stackPtr < 63) stack[stackPtr++] = first;
+            } else if (leftHit) {
+                if (stackPtr < 63) stack[stackPtr++] = node.leftChild;
+            } else if (rightHit) {
+                if (stackPtr < 63) stack[stackPtr++] = node.rightChild;
+            }
         }
     }
 

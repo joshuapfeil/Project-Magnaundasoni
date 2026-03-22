@@ -34,7 +34,8 @@ enum class EMagBackendType : uint8
     Auto        UMETA(DisplayName = "Auto"),
     SoftwareBVH UMETA(DisplayName = "Software BVH"),
     DXR         UMETA(DisplayName = "DXR"),
-    VulkanRT    UMETA(DisplayName = "Vulkan RT")
+    VulkanRT    UMETA(DisplayName = "Vulkan RT"),
+    Compute     UMETA(DisplayName = "Compute")
 };
 
 /** Thickness classification for materials. */
