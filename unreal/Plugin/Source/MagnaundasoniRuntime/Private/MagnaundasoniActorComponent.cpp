@@ -7,6 +7,7 @@
 #include "Components/AudioComponent.h"
 #include "GameFramework/Actor.h"
 #include "Engine/World.h"
+#include "Sound/SoundWave.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogMagSource, Log, All);
 
@@ -121,6 +122,26 @@ UMagSourceComponent::UMagSourceComponent()
     PrimaryComponentTick.TickGroup = TG_PrePhysics;
 }
 
+void UMagSourceComponent::InitializeAutoAttachment(UAudioComponent* AudioComponent)
+{
+    if (!AudioComponent) return;
+
+    CachedAudioComponent = AudioComponent;
+
+    if (GetAttachParent() != AudioComponent)
+    {
+        SetupAttachment(AudioComponent);
+    }
+
+    SetRelativeLocation(FVector::ZeroVector);
+    SetRelativeRotation(FRotator::ZeroRotator);
+
+    if (GetOwner() && GetOwner()->HasActorBegunPlay() && bActive)
+    {
+        RegisterSource();
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
@@ -130,9 +151,14 @@ void UMagSourceComponent::BeginPlay()
     Super::BeginPlay();
 
     // Cache sibling AudioComponent (first match wins).
-    if (bAutoApplyToAudioComponent && GetOwner())
+    if (bAutoApplyToAudioComponent)
     {
-        CachedAudioComponent = GetOwner()->FindComponentByClass<UAudioComponent>();
+        CachedAudioComponent = Cast<UAudioComponent>(GetAttachParent());
+        if (!CachedAudioComponent.IsValid() && GetOwner())
+        {
+            CachedAudioComponent = GetOwner()->FindComponentByClass<UAudioComponent>();
+        }
+
         if (!CachedAudioComponent.IsValid())
         {
             UE_LOG(LogMagSource, Verbose,
@@ -141,6 +167,8 @@ void UMagSourceComponent::BeginPlay()
                    *GetOwner()->GetName());
         }
     }
+
+    InitializeNativeAudioRouting();
 
     if (bActive)
     {
@@ -165,6 +193,7 @@ void UMagSourceComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 
     if (!bActive || !bRegistered) return;
 
+    SubmitNativeAudio(DeltaTime);
     PushSourceTransform();
 
     // After the module's global mag_update has run (post-tick), query the result.
@@ -178,6 +207,8 @@ void UMagSourceComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 
 void UMagSourceComponent::RegisterSource()
 {
+    if (bRegistered) return;
+
     const FMagNativeBridge* Bridge = FMagnaundasoniRuntimeModule::GetBridge();
     MagEngine Engine = FMagnaundasoniRuntimeModule::GetNativeEngine();
 
@@ -254,6 +285,107 @@ void UMagSourceComponent::PushSourceTransform()
         static_cast<MagSourceIDNative>(SourceID), &Desc);
 }
 
+void UMagSourceComponent::InitializeNativeAudioRouting()
+{
+    bNativeRoutingActive = false;
+    bWasAudioPlaying = false;
+    PlaybackFrameCursor = 0;
+    SourceNumChannels = 0;
+    SourceSampleRate = 0;
+    CachedSoundWave.Reset();
+
+    if (!bRouteThroughMagnaundasoni) return;
+
+    UAudioComponent* Audio = CachedAudioComponent.Get();
+    if (!Audio) return;
+
+    USoundWave* SoundWave = Cast<USoundWave>(Audio->Sound);
+    if (!SoundWave || !SoundWave->RawPCMData || SoundWave->RawPCMDataSize <= 0) return;
+
+    CachedSoundWave = SoundWave;
+    SourceNumChannels = FMath::Max(1, static_cast<int32>(SoundWave->NumChannels));
+    SourceSampleRate = FMath::Max(1, static_cast<int32>(SoundWave->GetSampleRateForCurrentPlatform()));
+    bNativeRoutingActive = true;
+
+    Audio->SetVolumeMultiplier(0.0f);
+}
+
+void UMagSourceComponent::SubmitNativeAudio(float DeltaTime)
+{
+    if (!bNativeRoutingActive || !bRegistered) return;
+
+    UAudioComponent* Audio = CachedAudioComponent.Get();
+    USoundWave* SoundWave = CachedSoundWave.Get();
+    const FMagNativeBridge* Bridge = FMagnaundasoniRuntimeModule::GetBridge();
+    MagEngine Engine = FMagnaundasoniRuntimeModule::GetNativeEngine();
+    if (!Audio || !SoundWave || !SoundWave->RawPCMData || !Bridge || !Engine || !Bridge->SubmitSourceAudio) return;
+
+    const bool bIsPlaying = Audio->IsPlaying();
+    if (!bIsPlaying)
+    {
+        if (bWasAudioPlaying)
+        {
+            PlaybackFrameCursor = 0;
+        }
+        bWasAudioPlaying = false;
+        return;
+    }
+
+    if (!bWasAudioPlaying)
+    {
+        PlaybackFrameCursor = 0;
+        bWasAudioPlaying = true;
+    }
+
+    const int32 FramesToSubmit = FMath::Max(1, FMath::RoundToInt(static_cast<float>(SourceSampleRate) * DeltaTime));
+    const int32 TotalFrames = SoundWave->RawPCMDataSize / (sizeof(int16) * SourceNumChannels);
+    if (TotalFrames <= 0) return;
+
+    TArray<float> InterleavedSamples;
+    InterleavedSamples.SetNumZeroed(FramesToSubmit * SourceNumChannels);
+
+    const int16* PCM = reinterpret_cast<const int16*>(SoundWave->RawPCMData);
+    for (int32 FrameIndex = 0; FrameIndex < FramesToSubmit; ++FrameIndex)
+    {
+        int32 SourceFrameIndex = PlaybackFrameCursor + FrameIndex;
+        if (SourceFrameIndex >= TotalFrames)
+        {
+            if (SoundWave->bLooping)
+            {
+                SourceFrameIndex %= TotalFrames;
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        for (int32 ChannelIndex = 0; ChannelIndex < SourceNumChannels; ++ChannelIndex)
+        {
+            const int32 PCMIndex = SourceFrameIndex * SourceNumChannels + ChannelIndex;
+            InterleavedSamples[FrameIndex * SourceNumChannels + ChannelIndex] =
+                static_cast<float>(PCM[PCMIndex]) / 32768.0f;
+        }
+    }
+
+    PlaybackFrameCursor += FramesToSubmit;
+    if (SoundWave->bLooping)
+    {
+        PlaybackFrameCursor %= TotalFrames;
+    }
+    else
+    {
+        PlaybackFrameCursor = FMath::Min(PlaybackFrameCursor, TotalFrames);
+    }
+
+    Bridge->SubmitSourceAudio(
+        reinterpret_cast<MagEngineNative>(Engine),
+        static_cast<MagSourceIDNative>(SourceID),
+        InterleavedSamples.GetData(),
+        static_cast<uint32>(FramesToSubmit),
+        static_cast<uint32>(SourceNumChannels));
+}
+
 void UMagSourceComponent::QueryAndApplyAcousticResult()
 {
     if (!bRegistered) return;
@@ -279,7 +411,7 @@ void UMagSourceComponent::QueryAndApplyAcousticResult()
 
     ConvertResult(NativeResult, LastAcousticResult);
 
-    if (bAutoApplyToAudioComponent)
+    if (bAutoApplyToAudioComponent && !bNativeRoutingActive)
     {
         UAudioComponent* Audio = CachedAudioComponent.Get();
         if (Audio)

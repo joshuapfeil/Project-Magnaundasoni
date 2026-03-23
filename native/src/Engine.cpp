@@ -15,6 +15,7 @@
 #include "core/ThreadPool.h"
 #include "core/Types.h"
 #include "render/AcousticRenderer.h"
+#include "render/OutputMixer.h"
 #include "spatial/HRTFDatabase.h"
 #include "spatial/Quaternion.h"
 #include "spatial/SpatialConfig.h"
@@ -26,6 +27,7 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <deque>
 #include <unordered_map>
 #include <vector>
 
@@ -80,6 +82,11 @@ struct MagEngine_T {
     MagSpeakerLayout speakerLayout = defaultSpeakerLayout(MAG_SPEAKERS_STEREO);
     HRTFDatabase hrtfDatabase;
     std::unordered_map<uint32_t, std::array<float, 4>> listenerHeadPoses;
+
+    std::mutex audioMutex;
+    OutputMixer outputMixer;
+    OutputMixer::Config outputMixerConfig{};
+    std::unordered_map<uint32_t, std::deque<float>> pendingSourceAudio;
 };
 
 /* ------------------------------------------------------------------ */
@@ -146,6 +153,57 @@ static AcousticRenderer::Config makeRendererConfig(const MagEngine_T* engine) {
     config.raysPerSource = (engine->config.raysPerSource > 0) ? engine->config.raysPerSource : 64;
     config.effectiveBandCount = engine->config.effectiveBandCount;
     return config;
+}
+
+static OutputMixer::SpatializationMode toMixerSpatialMode(MagSpatialMode mode) {
+    switch (mode) {
+        case MAG_SPATIAL_BINAURAL:
+        case MAG_SPATIAL_WINDOWS_SONIC:
+        case MAG_SPATIAL_DOLBY_ATMOS:
+        case MAG_SPATIAL_STEAM_AUDIO:
+        case MAG_SPATIAL_META_XR:
+        case MAG_SPATIAL_OPENXR:
+        case MAG_SPATIAL_CORE_AUDIO:
+            return OutputMixer::SpatializationMode::Binaural;
+        case MAG_SPATIAL_SURROUND_STEREO:
+        case MAG_SPATIAL_SURROUND_QUAD:
+        case MAG_SPATIAL_SURROUND_51:
+        case MAG_SPATIAL_SURROUND_71:
+        case MAG_SPATIAL_SURROUND_714:
+            return OutputMixer::SpatializationMode::Surround;
+        case MAG_SPATIAL_AUTO:
+        case MAG_SPATIAL_PASSTHROUGH:
+        default:
+            return OutputMixer::SpatializationMode::Passthrough;
+    }
+}
+
+static void configureOutputMixer(MagEngine_T* engine,
+                                 uint32_t sampleRate,
+                                 uint32_t channelCount) {
+    OutputMixer::Config config = engine->outputMixerConfig;
+    config.sampleRate = std::max(1u, sampleRate);
+    config.channels = std::max(1u, channelCount);
+    config.maxBlockSize = std::max(config.maxBlockSize, 4096u);
+
+    {
+        std::lock_guard lock(engine->spatialMutex);
+        config.spatializationMode = toMixerSpatialMode(engine->spatialConfig.mode);
+        config.maxBinauralSources = std::max(1u, engine->spatialConfig.maxBinauralSources);
+        config.speakerLayout = engine->speakerLayout;
+        if (config.speakerLayout.channelCount == 0) {
+            config.speakerLayout = defaultSpeakerLayout(MAG_SPEAKERS_STEREO);
+        }
+    }
+
+    if (config.sampleRate != engine->outputMixerConfig.sampleRate
+        || config.channels != engine->outputMixerConfig.channels
+        || config.spatializationMode != engine->outputMixerConfig.spatializationMode
+        || config.maxBinauralSources != engine->outputMixerConfig.maxBinauralSources
+        || config.speakerLayout.channelCount != engine->outputMixerConfig.speakerLayout.channelCount) {
+        engine->outputMixer.configure(config);
+        engine->outputMixerConfig = config;
+    }
 }
 
 static bool ensureComputeBackend(MagEngine_T* engine, MagBackendType backendFlavor) {
@@ -379,6 +437,10 @@ MagStatus mag_source_register(MagEngine engine,
 
 MagStatus mag_source_unregister(MagEngine engine, MagSourceID id) {
     if (!engine) return MAG_INVALID_PARAM;
+    {
+        std::lock_guard lock(engine->audioMutex);
+        engine->pendingSourceAudio.erase(id);
+    }
     return engine->scene.unregisterSource(id) ? MAG_OK : MAG_ERROR;
 }
 
@@ -455,6 +517,9 @@ MagStatus mag_set_spatial_config(MagEngine engine,
     } else if (engine->speakerLayout.channelCount == 0) {
         engine->speakerLayout = defaultSpeakerLayout(MAG_SPEAKERS_STEREO);
     }
+    configureOutputMixer(engine,
+                         engine->outputMixerConfig.sampleRate,
+                         engine->outputMixerConfig.channels);
     return MAG_OK;
 }
 
@@ -510,6 +575,9 @@ MagStatus mag_set_speaker_layout(MagEngine engine,
     std::lock_guard lock(engine->spatialMutex);
     engine->speakerLayout = *layout;
     engine->spatialConfig.speakerLayout = layout->preset;
+    configureOutputMixer(engine,
+                         engine->outputMixerConfig.sampleRate,
+                         engine->outputMixerConfig.channels);
     return MAG_OK;
 }
 
@@ -520,6 +588,87 @@ MagStatus mag_get_spatial_backend_info(MagEngine engine,
     *outInfo = resolveSpatialBackend(engine->spatialConfig,
                                      engine->speakerLayout,
                                      engine->hrtfDatabase.hasCustomDataset());
+    return MAG_OK;
+}
+
+MagStatus mag_submit_source_audio(MagEngine engine,
+                                  MagSourceID sourceID,
+                                  const float* interleavedSamples,
+                                  uint32_t frameCount,
+                                  uint32_t channelCount) {
+    if (!engine || !interleavedSamples || frameCount == 0 || channelCount == 0) {
+        return MAG_INVALID_PARAM;
+    }
+
+    if (!engine->scene.getSource(sourceID)) {
+        return MAG_ERROR;
+    }
+
+    std::lock_guard lock(engine->audioMutex);
+    auto& pending = engine->pendingSourceAudio[sourceID];
+    pending.resize(pending.size() + frameCount);
+
+    const size_t writeOffset = pending.size() - frameCount;
+    for (uint32_t frameIndex = 0; frameIndex < frameCount; ++frameIndex) {
+        float sum = 0.0f;
+        for (uint32_t channelIndex = 0; channelIndex < channelCount; ++channelIndex) {
+            sum += interleavedSamples[frameIndex * channelCount + channelIndex];
+        }
+        pending[writeOffset + frameIndex] = sum / static_cast<float>(channelCount);
+    }
+
+    return MAG_OK;
+}
+
+MagStatus mag_render_audio(MagEngine engine,
+                           MagListenerID listenerID,
+                           float* outputBuffer,
+                           uint32_t frameCount,
+                           uint32_t channelCount,
+                           uint32_t sampleRate) {
+    if (!engine || !outputBuffer || frameCount == 0 || channelCount == 0 || sampleRate == 0) {
+        return MAG_INVALID_PARAM;
+    }
+
+    if (!engine->scene.getListener(listenerID)) {
+        return MAG_ERROR;
+    }
+
+    configureOutputMixer(engine, sampleRate, channelCount);
+
+    {
+        std::lock_guard lock(engine->spatialMutex);
+        auto poseIt = engine->listenerHeadPoses.find(listenerID);
+        if (poseIt != engine->listenerHeadPoses.end()) {
+            engine->outputMixer.setListenerHeadPose(poseIt->second.data());
+        }
+    }
+
+    const auto sourceIDs = engine->scene.getActiveSourceIDs();
+    for (MagSourceID sourceID : sourceIDs) {
+        MagAcousticResult result{};
+        if (engine->acousticRenderer.copyResult(sourceID, listenerID, result)) {
+            std::vector<float> sourceFrames(frameCount, 0.0f);
+            {
+                std::lock_guard lock(engine->audioMutex);
+                auto pendingIt = engine->pendingSourceAudio.find(sourceID);
+                if (pendingIt != engine->pendingSourceAudio.end()) {
+                    auto& pending = pendingIt->second;
+                    const uint32_t framesToCopy = std::min<uint32_t>(frameCount, static_cast<uint32_t>(pending.size()));
+                    for (uint32_t frameIndex = 0; frameIndex < framesToCopy; ++frameIndex) {
+                        sourceFrames[frameIndex] = pending.front();
+                        pending.pop_front();
+                    }
+                }
+            }
+
+            engine->outputMixer.stageResult(sourceID, listenerID, result,
+                                            sourceFrames.data(), frameCount);
+        }
+    }
+
+    engine->outputMixer.commitStaged();
+    engine->outputMixer.mix(outputBuffer, frameCount);
     return MAG_OK;
 }
 

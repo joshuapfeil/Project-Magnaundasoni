@@ -365,6 +365,21 @@ MAG_API MagStatus mag_get_spatial_backend_info(MagEngine engine,
 MAG_API MagStatus mag_update(MagEngine engine, float deltaTime);
 
 /* ------------------------------------------------------------------ */
+/* Built-in audio routing                                             */
+/* ------------------------------------------------------------------ */
+MAG_API MagStatus mag_submit_source_audio(MagEngine engine,
+                                          MagSourceID sourceID,
+                                          const float* interleavedSamples,
+                                          uint32_t frameCount,
+                                          uint32_t channelCount);
+MAG_API MagStatus mag_render_audio(MagEngine engine,
+                                   MagListenerID listenerID,
+                                   float* outputBuffer,
+                                   uint32_t frameCount,
+                                   uint32_t channelCount,
+                                   uint32_t sampleRate);
+
+/* ------------------------------------------------------------------ */
 /* Query results                                                      */
 /* ------------------------------------------------------------------ */
 MAG_API MagStatus mag_get_acoustic_result(MagEngine engine,

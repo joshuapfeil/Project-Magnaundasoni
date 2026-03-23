@@ -615,6 +615,20 @@ namespace Magnaundasoni
             Check(MagnaundasoniNative.mag_update(engine, deltaTime));
         }
 
+        public static void SubmitSourceAudio(
+            IntPtr engine, uint sourceID, float[] interleavedSamples, uint frameCount, uint channelCount)
+        {
+            Check(MagnaundasoniNative.mag_submit_source_audio(
+                engine, sourceID, interleavedSamples, frameCount, channelCount));
+        }
+
+        public static void RenderAudio(
+            IntPtr engine, uint listenerID, float[] outputBuffer, uint frameCount, uint channelCount, uint sampleRate)
+        {
+            Check(MagnaundasoniNative.mag_render_audio(
+                engine, listenerID, outputBuffer, frameCount, channelCount, sampleRate));
+        }
+
         public static MagAcousticResult GetAcousticResult(
             IntPtr engine, uint sourceID, uint listenerID)
         {

@@ -129,7 +129,7 @@ void AcousticRenderer::update(Scene& scene, const BVH& bvh,
         for (const auto& [key, res] : results_) {
             uint32_t sid = static_cast<uint32_t>(key >> 32);
             uint32_t lid = static_cast<uint32_t>(key & 0xFFFFFFFF);
-            outputMixer_.stageResult(sid, lid, res);
+            outputMixer_.stageResult(sid, lid, res, nullptr, 0);
         }
     }
     outputMixer_.commitStaged();

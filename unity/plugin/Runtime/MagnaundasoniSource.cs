@@ -6,6 +6,7 @@ using UnityEngine;
 
 namespace Magnaundasoni
 {
+    [DisallowMultipleComponent]
     [AddComponentMenu("Magnaundasoni/Acoustic Source")]
     [RequireComponent(typeof(AudioSource))]
     public class MagnaundasoniSource : MonoBehaviour
@@ -56,7 +57,27 @@ namespace Magnaundasoni
             if (!engine.IsInitialized) return;
 
             UpdateNativePosition(engine);
-            FetchAndApplyResults(engine);
+            if (engine.CurrentMode == RenderingMode.Integration)
+                FetchAndApplyResults(engine);
+        }
+
+        private void OnAudioFilterRead(float[] data, int channels)
+        {
+            if (!_registered || data == null || data.Length == 0 || channels <= 0) return;
+
+            var engine = MagnaundasoniEngine.Current;
+            if (engine == null || !engine.IsInitialized) return;
+            if (engine.CurrentMode != RenderingMode.BuiltIn) return;
+
+            try
+            {
+                MagAPI.SubmitSourceAudio(engine.NativeHandle, _sourceID,
+                    data, (uint)(data.Length / channels), (uint)channels);
+                Array.Clear(data, 0, data.Length);
+            }
+            catch (MagnaundasoniException)
+            {
+            }
         }
 
         // ----- Registration ------------------------------------------------

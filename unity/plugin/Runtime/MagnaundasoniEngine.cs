@@ -70,7 +70,7 @@ namespace Magnaundasoni
 
         [Header("Mode")]
         [Tooltip("BuiltIn: engine handles audio output. Integration: maps results to Unity AudioSources.")]
-        [SerializeField] private RenderingMode _renderingMode = RenderingMode.Integration;
+        [SerializeField] private RenderingMode _renderingMode = RenderingMode.BuiltIn;
 
         [Header("Auto Registration")]
         [Tooltip("Automatically scan and register all scene geometry on startup.")]
@@ -79,6 +79,12 @@ namespace Magnaundasoni
         [SerializeField] private bool _autoRegisterOnSceneLoad = true;
         [Tooltip("Default material preset for auto-registered geometry.")]
         [SerializeField] private string _defaultMaterialPreset = "General";
+        [Tooltip("Automatically attach acoustic source components to existing AudioSources.")]
+        [SerializeField] private bool _autoIntegrateAudioSources = true;
+        [Tooltip("Automatically attach acoustic listener components to existing AudioListeners.")]
+        [SerializeField] private bool _autoIntegrateAudioListeners = true;
+        [Tooltip("How often to scan for newly created audio sources and listeners.")]
+        [SerializeField] [Min(0.1f)] private float _autoAudioScanInterval = 0.5f;
 
         // ----- Public Properties ------------------------------------------
         public IntPtr NativeHandle => _engineHandle;
@@ -98,6 +104,7 @@ namespace Magnaundasoni
 
         // ----- Private State -----------------------------------------------
         private IntPtr _engineHandle = IntPtr.Zero;
+        private float _nextAutoAudioScanTime;
 
         // ----- Lifecycle ---------------------------------------------------
         private void Awake()
@@ -116,6 +123,8 @@ namespace Magnaundasoni
             InitializeEngine();
             if (_autoRegisterSceneGeometry && IsInitialized)
                 AutoRegisterAllSceneGeometry();
+            AutoAttachAudioIntegrationComponents();
+            _nextAutoAudioScanTime = 0f;
             if (_autoRegisterOnSceneLoad)
                 UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneLoaded;
         }
@@ -135,6 +144,13 @@ namespace Magnaundasoni
 
         private void LateUpdate()
         {
+            if ((_autoIntegrateAudioSources || _autoIntegrateAudioListeners)
+                && Time.unscaledTime >= _nextAutoAudioScanTime)
+            {
+                AutoAttachAudioIntegrationComponents();
+                _nextAutoAudioScanTime = Time.unscaledTime + _autoAudioScanInterval;
+            }
+
             if (!IsInitialized) return;
 
             try
@@ -257,8 +273,41 @@ namespace Magnaundasoni
         private void OnSceneLoaded(UnityEngine.SceneManagement.Scene scene,
             UnityEngine.SceneManagement.LoadSceneMode mode)
         {
+            AutoAttachAudioIntegrationComponents();
             if (!IsInitialized || !_autoRegisterOnSceneLoad) return;
             AutoRegisterSceneGeometry(scene);
+        }
+
+        private void AutoAttachAudioIntegrationComponents()
+        {
+            if (_autoIntegrateAudioSources)
+            {
+                foreach (var audioSource in FindSceneObjects<AudioSource>())
+                {
+                    if (audioSource == null) continue;
+                    if (audioSource.GetComponent<MagnaundasoniSource>() != null) continue;
+                    audioSource.gameObject.AddComponent<MagnaundasoniSource>();
+                }
+            }
+
+            if (_autoIntegrateAudioListeners)
+            {
+                foreach (var audioListener in FindSceneObjects<AudioListener>())
+                {
+                    if (audioListener == null) continue;
+                    if (audioListener.GetComponent<MagnaundasoniListener>() != null) continue;
+                    audioListener.gameObject.AddComponent<MagnaundasoniListener>();
+                }
+            }
+        }
+
+        private static T[] FindSceneObjects<T>() where T : UnityEngine.Object
+        {
+#if UNITY_2022_2_OR_NEWER
+            return FindObjectsByType<T>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+#else
+            return FindObjectsOfType<T>(true);
+#endif
         }
 
         /// <summary>

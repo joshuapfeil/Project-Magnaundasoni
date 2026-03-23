@@ -58,11 +58,16 @@ void OutputMixer::initialiseFDN() {
 }
 
 void OutputMixer::stageResult(uint32_t sourceID, uint32_t listenerID,
-                               const MagAcousticResult& result) {
+                               const MagAcousticResult& result,
+                               const float* sourceSamples,
+                               uint32_t numFrames) {
     StagedResult sr;
     sr.sourceID   = sourceID;
     sr.listenerID = listenerID;
     sr.result     = result;
+    if (sourceSamples && numFrames > 0) {
+        sr.sourceSamples.assign(sourceSamples, sourceSamples + numFrames);
+    }
 
     // Deep-copy the dynamic arrays
     if (result.reflections && result.reflectionCount > 0) {
@@ -248,6 +253,10 @@ void OutputMixer::mix(float* outputBuffer, uint32_t numFrames) {
     for (const auto& sr : localActive) {
         const auto& res = sr.result;
 
+        if (sr.sourceSamples.empty()) {
+            continue;
+        }
+
         // --- Direct path ---
         float directGain = BandProcessor::bandToSingleGain(
             *reinterpret_cast<const BandArray*>(res.direct.perBandGain),
@@ -260,40 +269,49 @@ void OutputMixer::mix(float* outputBuffer, uint32_t numFrames) {
             useBinaural = true;
         }
         Vec3 directDir{res.direct.direction[0], res.direct.direction[1], res.direct.direction[2]};
-        if (useBinaural) {
-            writeSpatialisedTap(directDir, res.direct.delay, directGain);
-        } else if (!binauralMode) {
-            writeSpatialisedTap(directDir, res.direct.delay, directGain);
-        } else {
-            float pan = directDir.x * 0.5f + 0.5f;
-            if (ch >= 2) {
-                writeDelayLine(res.direct.delay, (1.0f - pan) * directGain * config_.masterGain, 0);
-                writeDelayLine(res.direct.delay, pan * directGain * config_.masterGain, 1);
+        const uint32_t sourceFrames = std::min<uint32_t>(numFrames, static_cast<uint32_t>(sr.sourceSamples.size()));
+        for (uint32_t sampleIndex = 0; sampleIndex < sourceFrames; ++sampleIndex) {
+            const float sourceSample = sr.sourceSamples[sampleIndex];
+            const float sampleDelay = static_cast<float>(sampleIndex) / static_cast<float>(config_.sampleRate);
+
+            if (useBinaural) {
+                writeSpatialisedTap(directDir, res.direct.delay + sampleDelay, sourceSample * directGain);
+            } else if (!binauralMode) {
+                writeSpatialisedTap(directDir, res.direct.delay + sampleDelay, sourceSample * directGain);
             } else {
-                writeDelayLine(res.direct.delay, directGain * config_.masterGain, 0);
+                float pan = directDir.x * 0.5f + 0.5f;
+                if (ch >= 2) {
+                    writeDelayLine(res.direct.delay + sampleDelay,
+                                   (1.0f - pan) * sourceSample * directGain * config_.masterGain, 0);
+                    writeDelayLine(res.direct.delay + sampleDelay,
+                                   pan * sourceSample * directGain * config_.masterGain, 1);
+                } else {
+                    writeDelayLine(res.direct.delay + sampleDelay,
+                                   sourceSample * directGain * config_.masterGain, 0);
+                }
             }
-        }
 
-        // --- Reflections ---
-        for (uint32_t i = 0; i < res.reflectionCount && res.reflections; ++i) {
-            const auto& tap = res.reflections[i];
-            float tapGain = BandProcessor::bandToSingleGain(
-                *reinterpret_cast<const BandArray*>(tap.perBandEnergy),
-                FrequencyWeighting::Flat);
+            // --- Reflections ---
+            for (uint32_t i = 0; i < res.reflectionCount && res.reflections; ++i) {
+                const auto& tap = res.reflections[i];
+                float tapGain = BandProcessor::bandToSingleGain(
+                    *reinterpret_cast<const BandArray*>(tap.perBandEnergy),
+                    FrequencyWeighting::Flat);
 
-            writeSpatialisedTap({tap.direction[0], tap.direction[1], tap.direction[2]},
-                                tap.delay, tapGain);
-        }
+                writeSpatialisedTap({tap.direction[0], tap.direction[1], tap.direction[2]},
+                                    tap.delay + sampleDelay, sourceSample * tapGain);
+            }
 
-        // --- Diffraction ---
-        for (uint32_t i = 0; i < res.diffractionCount && res.diffractions; ++i) {
-            const auto& tap = res.diffractions[i];
-            float tapGain = BandProcessor::bandToSingleGain(
-                *reinterpret_cast<const BandArray*>(tap.perBandAttenuation),
-                FrequencyWeighting::Flat);
+            // --- Diffraction ---
+            for (uint32_t i = 0; i < res.diffractionCount && res.diffractions; ++i) {
+                const auto& tap = res.diffractions[i];
+                float tapGain = BandProcessor::bandToSingleGain(
+                    *reinterpret_cast<const BandArray*>(tap.perBandAttenuation),
+                    FrequencyWeighting::Flat);
 
-            writeSpatialisedTap({tap.direction[0], tap.direction[1], tap.direction[2]},
-                                tap.delay, tapGain);
+                writeSpatialisedTap({tap.direction[0], tap.direction[1], tap.direction[2]},
+                                    tap.delay + sampleDelay, sourceSample * tapGain);
+            }
         }
 
         // Accumulate late field

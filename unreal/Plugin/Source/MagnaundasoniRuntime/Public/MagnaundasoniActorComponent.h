@@ -9,6 +9,7 @@
 
 // Forward declarations
 class UAudioComponent;
+class USoundWave;
 
 // ---------------------------------------------------------------------------
 // UMagSourceComponent
@@ -44,6 +45,9 @@ class MAGNAUNDASONIRUNTIME_API UMagSourceComponent : public USceneComponent
 public:
     UMagSourceComponent();
 
+    /** Bind this source component to an existing audio component for auto-integration. */
+    void InitializeAutoAttachment(UAudioComponent* AudioComponent);
+
     // UActorComponent interface ------------------------------------------
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -77,6 +81,10 @@ public:
      */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Magnaundasoni|Source")
     bool bAutoApplyToAudioComponent = true;
+
+    /** Route source playback through the native Magnaundasoni renderer when possible. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Magnaundasoni|Source")
+    bool bRouteThroughMagnaundasoni = true;
 
     /** Whether this source participates in the acoustic simulation. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Magnaundasoni|Source")
@@ -114,10 +122,18 @@ private:
 
     /** Sibling AudioComponent resolved once on BeginPlay. */
     TWeakObjectPtr<UAudioComponent> CachedAudioComponent;
+    TWeakObjectPtr<USoundWave> CachedSoundWave;
+    int32 PlaybackFrameCursor = 0;
+    int32 SourceNumChannels = 0;
+    int32 SourceSampleRate = 0;
+    bool bNativeRoutingActive = false;
+    bool bWasAudioPlaying = false;
 
     void RegisterSource();
     void UnregisterSource();
     void PushSourceTransform();
+    void InitializeNativeAudioRouting();
+    void SubmitNativeAudio(float DeltaTime);
     void ApplyResultToAudio(UAudioComponent* Audio);
 };
 

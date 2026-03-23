@@ -6,7 +6,9 @@ using UnityEngine;
 
 namespace Magnaundasoni
 {
+    [DisallowMultipleComponent]
     [AddComponentMenu("Magnaundasoni/Acoustic Listener")]
+    [RequireComponent(typeof(AudioListener))]
     public class MagnaundasoniListener : MonoBehaviour
     {
         // ----- Static Active Listener Tracking -----------------------------
@@ -44,6 +46,27 @@ namespace Magnaundasoni
             if (!engine.IsInitialized) return;
 
             UpdateNativePosition(engine);
+        }
+
+        private void OnAudioFilterRead(float[] data, int channels)
+        {
+            if (data == null || data.Length == 0 || channels <= 0) return;
+            if (_activeListener != this || !_registered) return;
+
+            var engine = MagnaundasoniEngine.Current;
+            if (engine == null || !engine.IsInitialized) return;
+            if (engine.CurrentMode != RenderingMode.BuiltIn) return;
+
+            try
+            {
+                MagAPI.RenderAudio(engine.NativeHandle, _listenerID,
+                    data, (uint)(data.Length / channels), (uint)channels,
+                    (uint)AudioSettings.outputSampleRate);
+            }
+            catch (MagnaundasoniException)
+            {
+                Array.Clear(data, 0, data.Length);
+            }
         }
 
         // ----- Registration ------------------------------------------------

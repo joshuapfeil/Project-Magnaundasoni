@@ -9,6 +9,7 @@
 struct FMagNativeBridge;
 class AActor;
 class ULevel;
+class UWorld;
 
 /**
  * FMagnaundasoniRuntimeModule
@@ -69,10 +70,19 @@ private:
     /** Called once per world tick after all actors have ticked. */
     void OnWorldPostActorTick(UWorld* World, ELevelTick TickType, float DeltaSeconds);
 
-    /** Auto-register static-mesh actors in a world the first time it starts ticking. */
-    void EnsureWorldGeometryAutoRegistration(UWorld* World);
+    /** Auto-register supported runtime integrations in a world the first time it starts ticking. */
+    void EnsureWorldAutoRegistration(UWorld* World);
 
-    /** Auto-attach runtime geometry registration to newly spawned actors. */
+    /** Sync the primary acoustic listener to the world's current audio listener. */
+    void UpdateAutoListener(UWorld* World);
+
+    /** Ensure the world has a procedural output path for Magnaundasoni-rendered audio. */
+    void EnsureWorldAudioRenderer(UWorld* World);
+
+    /** Feed freshly rendered audio into the world's procedural output path. */
+    void PumpWorldAudioRenderer(UWorld* World);
+
+    /** Auto-attach runtime integrations to newly spawned actors. */
     void OnActorSpawned(AActor* Actor);
 
     /** Clean up per-world delegate state when a world is torn down. */

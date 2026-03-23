@@ -6,6 +6,7 @@
 #include "MagnaundasoniModule.h"       // base module: FMagnaundasoniModule
 
 #include "Components/StaticMeshComponent.h"
+#include "Components/AudioComponent.h"
 #include "HAL/PlatformProcess.h"
 #include "Engine/StaticMesh.h"
 #include "Misc/Paths.h"
@@ -13,8 +14,12 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/PlayerController.h"
 #include "Interfaces/IPluginManager.h"
+#include "Sound/SoundWaveProcedural.h"
 #include "StaticMeshResources.h"
+
+#include "MagnaundasoniActorComponent.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogMagnaundasoniRuntime, Log, All);
 
@@ -27,9 +32,41 @@ static void*             GExtraLibHandle        = nullptr;  // extra DllHandle r
 static uint32            GPrimaryListenerID     = 0;
 static TSet<TWeakObjectPtr<UWorld>> GAutoRegisteredWorlds;
 static TMap<TWeakObjectPtr<UWorld>, FDelegateHandle> GActorSpawnHandles;
+static TMap<TWeakObjectPtr<UWorld>, uint32> GAutoListenerIDs;
+
+struct FMagWorldAudioRendererState
+{
+    TWeakObjectPtr<AActor> Actor;
+    TWeakObjectPtr<UAudioComponent> AudioComponent;
+    TWeakObjectPtr<USoundWaveProcedural> ProceduralSound;
+    TArray<float> FloatBuffer;
+    TArray<uint8> PCMBuffer;
+    uint32 SampleRate = 48000;
+    uint32 NumChannels = 2;
+    uint32 FramesPerChunk = 1024;
+};
+
+static TMap<TWeakObjectPtr<UWorld>, FMagWorldAudioRendererState> GWorldAudioRenderers;
 
 namespace
 {
+static constexpr float kCmToM = 0.01f;
+
+void CopyVec(float Out[3], const FVector& V)
+{
+    Out[0] = static_cast<float>(V.X * kCmToM);
+    Out[1] = static_cast<float>(V.Y * kCmToM);
+    Out[2] = static_cast<float>(V.Z * kCmToM);
+}
+
+void CopyDir(float Out[3], const FVector& V)
+{
+    const FVector Normalized = V.GetSafeNormal();
+    Out[0] = static_cast<float>(Normalized.X);
+    Out[1] = static_cast<float>(Normalized.Y);
+    Out[2] = static_cast<float>(Normalized.Z);
+}
+
 UStaticMeshComponent* FindUsableStaticMeshComponent(const AActor* Actor)
 {
     if (!Actor) return nullptr;
@@ -51,6 +88,42 @@ UStaticMeshComponent* FindUsableStaticMeshComponent(const AActor* Actor)
     }
 
     return nullptr;
+}
+
+bool HasExplicitMagSourceComponent(const AActor* Actor)
+{
+    if (!Actor) return false;
+
+    TInlineComponentArray<UMagSourceComponent*> SourceComponents;
+    Actor->GetComponents<UMagSourceComponent>(SourceComponents);
+
+    for (UMagSourceComponent* SourceComponent : SourceComponents)
+    {
+        if (SourceComponent && !SourceComponent->HasAnyFlags(RF_Transient))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool HasMagSourceForAudioComponent(const AActor* Actor, const UAudioComponent* AudioComponent)
+{
+    if (!Actor || !AudioComponent) return false;
+
+    TInlineComponentArray<UMagSourceComponent*> SourceComponents;
+    Actor->GetComponents<UMagSourceComponent>(SourceComponents);
+
+    for (UMagSourceComponent* SourceComponent : SourceComponents)
+    {
+        if (SourceComponent && SourceComponent->GetAttachParent() == AudioComponent)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void TryAutoAttachGeometryComponent(AActor* Actor)
@@ -80,6 +153,83 @@ void TryAutoAttachGeometryComponent(AActor* Actor)
     UE_LOG(LogMagnaundasoniRuntime, Verbose,
            TEXT("[%s] Auto-attached Mag Geometry component for runtime registration."),
            *Actor->GetName());
+}
+
+void TryAutoAttachSourceComponents(AActor* Actor)
+{
+    if (!GNativeEngine || !GBridge.IsValid()) return;
+
+    UWorld* World = Actor ? Actor->GetWorld() : nullptr;
+    if (!World || !World->IsGameWorld()) return;
+    if (!Actor || Actor->HasAnyFlags(RF_ClassDefaultObject)) return;
+    if (HasExplicitMagSourceComponent(Actor)) return;
+
+    TInlineComponentArray<UAudioComponent*> AudioComponents;
+    Actor->GetComponents<UAudioComponent>(AudioComponents);
+
+    for (UAudioComponent* AudioComponent : AudioComponents)
+    {
+        if (!AudioComponent) continue;
+        if (HasMagSourceForAudioComponent(Actor, AudioComponent)) continue;
+
+        UMagSourceComponent* SourceComponent =
+            NewObject<UMagSourceComponent>(Actor, NAME_None, RF_Transient);
+        if (!SourceComponent) continue;
+
+        SourceComponent->SetupAttachment(AudioComponent);
+        Actor->AddInstanceComponent(SourceComponent);
+        SourceComponent->RegisterComponent();
+        SourceComponent->InitializeAutoAttachment(AudioComponent);
+
+        UE_LOG(LogMagnaundasoniRuntime, Verbose,
+               TEXT("[%s] Auto-attached Mag Source component to '%s'."),
+               *Actor->GetName(), *AudioComponent->GetName());
+    }
+}
+
+void UnregisterAutoListener(UWorld* World)
+{
+    if (!World) return;
+
+    const TWeakObjectPtr<UWorld> WorldKey(World);
+    const uint32* ListenerID = GAutoListenerIDs.Find(WorldKey);
+    if (!ListenerID || *ListenerID == 0) return;
+
+    if (GBridge.ListenerUnregister && GNativeEngine)
+    {
+        GBridge.ListenerUnregister(
+            reinterpret_cast<MagEngineNative>(GNativeEngine),
+            static_cast<MagListenerIDNative>(*ListenerID));
+    }
+
+    if (GPrimaryListenerID == *ListenerID)
+    {
+        GPrimaryListenerID = 0;
+    }
+
+    GAutoListenerIDs.Remove(WorldKey);
+}
+
+void DestroyWorldAudioRenderer(UWorld* World)
+{
+    if (!World) return;
+
+    const TWeakObjectPtr<UWorld> WorldKey(World);
+    if (FMagWorldAudioRendererState* State = GWorldAudioRenderers.Find(WorldKey))
+    {
+        if (UAudioComponent* AudioComponent = State->AudioComponent.Get())
+        {
+            AudioComponent->Stop();
+            AudioComponent->DestroyComponent();
+        }
+
+        if (AActor* Actor = State->Actor.Get())
+        {
+            Actor->Destroy();
+        }
+
+        GWorldAudioRenderers.Remove(WorldKey);
+    }
 }
 } // namespace
 
@@ -192,6 +342,8 @@ void FMagnaundasoniRuntimeModule::ShutdownModule()
     }
     GActorSpawnHandles.Empty();
     GAutoRegisteredWorlds.Empty();
+    GAutoListenerIDs.Empty();
+    GWorldAudioRenderers.Empty();
 
     GNativeEngine = nullptr;
     FMemory::Memzero(&GBridge, sizeof(GBridge));
@@ -218,11 +370,14 @@ void FMagnaundasoniRuntimeModule::OnWorldPostActorTick(
     // PIE spectator viewports, or editor-only ticks).
     if (!World || !World->IsGameWorld()) return;
 
-    EnsureWorldGeometryAutoRegistration(World);
+    EnsureWorldAutoRegistration(World);
+    UpdateAutoListener(World);
     GBridge.Update(reinterpret_cast<MagEngineNative>(GNativeEngine), DeltaSeconds);
+    EnsureWorldAudioRenderer(World);
+    PumpWorldAudioRenderer(World);
 }
 
-void FMagnaundasoniRuntimeModule::EnsureWorldGeometryAutoRegistration(UWorld* World)
+void FMagnaundasoniRuntimeModule::EnsureWorldAutoRegistration(UWorld* World)
 {
     if (!World) return;
 
@@ -232,6 +387,7 @@ void FMagnaundasoniRuntimeModule::EnsureWorldGeometryAutoRegistration(UWorld* Wo
     for (TActorIterator<AActor> ActorIt(World); ActorIt; ++ActorIt)
     {
         TryAutoAttachGeometryComponent(*ActorIt);
+        TryAutoAttachSourceComponents(*ActorIt);
     }
 
     if (!GActorSpawnHandles.Contains(WorldKey))
@@ -244,9 +400,162 @@ void FMagnaundasoniRuntimeModule::EnsureWorldGeometryAutoRegistration(UWorld* Wo
     GAutoRegisteredWorlds.Add(WorldKey);
 }
 
+void FMagnaundasoniRuntimeModule::UpdateAutoListener(UWorld* World)
+{
+    if (!World || !GNativeEngine || !GBridge.ListenerRegister || !GBridge.ListenerUpdate) return;
+
+    const TWeakObjectPtr<UWorld> WorldKey(World);
+    const uint32 ExistingAutoListenerID = GAutoListenerIDs.FindRef(WorldKey);
+
+    if (ExistingAutoListenerID != 0
+        && GPrimaryListenerID != 0
+        && GPrimaryListenerID != ExistingAutoListenerID)
+    {
+        UnregisterAutoListener(World);
+        return;
+    }
+
+    APlayerController* PlayerController = World->GetFirstPlayerController();
+    if (!PlayerController)
+    {
+        UnregisterAutoListener(World);
+        return;
+    }
+
+    FVector ListenerLocation;
+    FVector ListenerFront;
+    FVector ListenerRight;
+    PlayerController->GetAudioListenerPosition(ListenerLocation, ListenerFront, ListenerRight);
+
+    FVector ListenerUp = FVector::CrossProduct(ListenerFront, ListenerRight).GetSafeNormal();
+    if (ListenerUp.IsNearlyZero())
+    {
+        ListenerUp = FVector::UpVector;
+    }
+
+    FMagListenerDescNative Desc = {};
+    CopyVec(Desc.position, ListenerLocation);
+    CopyDir(Desc.forward, ListenerFront);
+    CopyDir(Desc.up, ListenerUp);
+
+    uint32 AutoListenerID = ExistingAutoListenerID;
+    if (AutoListenerID == 0)
+    {
+        MagListenerIDNative OutID = 0;
+        const MagStatusNative Status = GBridge.ListenerRegister(
+            reinterpret_cast<MagEngineNative>(GNativeEngine), &Desc, &OutID);
+        if (Status != 0) return;
+
+        AutoListenerID = static_cast<uint32>(OutID);
+        GAutoListenerIDs.Add(WorldKey, AutoListenerID);
+
+        UE_LOG(LogMagnaundasoniRuntime, Verbose,
+               TEXT("[%s] Auto-registered primary listener from the active audio listener (ID=%u)."),
+               *World->GetName(), AutoListenerID);
+    }
+    else
+    {
+        GBridge.ListenerUpdate(
+            reinterpret_cast<MagEngineNative>(GNativeEngine),
+            static_cast<MagListenerIDNative>(AutoListenerID), &Desc);
+    }
+
+    if (GPrimaryListenerID == 0 || GPrimaryListenerID == AutoListenerID)
+    {
+        GPrimaryListenerID = AutoListenerID;
+    }
+}
+
+void FMagnaundasoniRuntimeModule::EnsureWorldAudioRenderer(UWorld* World)
+{
+    if (!World || !World->IsGameWorld()) return;
+
+    const TWeakObjectPtr<UWorld> WorldKey(World);
+    FMagWorldAudioRendererState* ExistingState = GWorldAudioRenderers.Find(WorldKey);
+    if (ExistingState && ExistingState->AudioComponent.IsValid() && ExistingState->ProceduralSound.IsValid())
+    {
+        return;
+    }
+
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.ObjectFlags |= RF_Transient;
+    SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    AActor* AudioActor = World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity, SpawnParams);
+    if (!AudioActor) return;
+
+    AudioActor->SetActorHiddenInGame(true);
+
+    UAudioComponent* AudioComponent = NewObject<UAudioComponent>(AudioActor, NAME_None, RF_Transient);
+    USoundWaveProcedural* ProceduralSound = NewObject<USoundWaveProcedural>(AudioComponent, NAME_None, RF_Transient);
+    if (!AudioComponent || !ProceduralSound)
+    {
+        if (AudioActor)
+        {
+            AudioActor->Destroy();
+        }
+        return;
+    }
+
+    ProceduralSound->SetSampleRate(48000);
+    ProceduralSound->NumChannels = 2;
+    ProceduralSound->Duration = INDEFINITELY_LOOPING_DURATION;
+    ProceduralSound->SoundGroup = SOUNDGROUP_Default;
+
+    AudioActor->AddInstanceComponent(AudioComponent);
+    AudioActor->SetRootComponent(AudioComponent);
+    AudioComponent->bAutoActivate = false;
+    AudioComponent->bAllowSpatialization = false;
+    AudioComponent->bIsUISound = true;
+    AudioComponent->SetSound(ProceduralSound);
+    AudioComponent->RegisterComponent();
+    AudioComponent->Play();
+
+    FMagWorldAudioRendererState& State = GWorldAudioRenderers.FindOrAdd(WorldKey);
+    State.Actor = AudioActor;
+    State.AudioComponent = AudioComponent;
+    State.ProceduralSound = ProceduralSound;
+}
+
+void FMagnaundasoniRuntimeModule::PumpWorldAudioRenderer(UWorld* World)
+{
+    if (!World || !GNativeEngine || !GBridge.RenderAudio) return;
+
+    const uint32 ListenerID = GetPrimaryListenerID();
+    if (ListenerID == 0) return;
+
+    const TWeakObjectPtr<UWorld> WorldKey(World);
+    FMagWorldAudioRendererState* State = GWorldAudioRenderers.Find(WorldKey);
+    if (!State || !State->AudioComponent.IsValid() || !State->ProceduralSound.IsValid()) return;
+
+    State->FloatBuffer.SetNumZeroed(static_cast<int32>(State->FramesPerChunk * State->NumChannels));
+    const MagStatusNative Status = GBridge.RenderAudio(
+        reinterpret_cast<MagEngineNative>(GNativeEngine),
+        static_cast<MagListenerIDNative>(ListenerID),
+        State->FloatBuffer.GetData(),
+        State->FramesPerChunk,
+        State->NumChannels,
+        State->SampleRate);
+    if (Status != 0) return;
+
+    State->PCMBuffer.SetNumUninitialized(State->FloatBuffer.Num() * static_cast<int32>(sizeof(int16)));
+    int16* PCMOut = reinterpret_cast<int16*>(State->PCMBuffer.GetData());
+    for (int32 SampleIndex = 0; SampleIndex < State->FloatBuffer.Num(); ++SampleIndex)
+    {
+        PCMOut[SampleIndex] = static_cast<int16>(FMath::Clamp(State->FloatBuffer[SampleIndex], -1.0f, 1.0f) * 32767.0f);
+    }
+
+    State->ProceduralSound->QueueAudio(State->PCMBuffer.GetData(), State->PCMBuffer.Num());
+    if (!State->AudioComponent->IsPlaying())
+    {
+        State->AudioComponent->Play();
+    }
+}
+
 void FMagnaundasoniRuntimeModule::OnActorSpawned(AActor* Actor)
 {
     TryAutoAttachGeometryComponent(Actor);
+    TryAutoAttachSourceComponents(Actor);
 }
 
 void FMagnaundasoniRuntimeModule::OnWorldCleanup(
@@ -261,6 +570,8 @@ void FMagnaundasoniRuntimeModule::OnWorldCleanup(
         GActorSpawnHandles.Remove(WorldKey);
     }
 
+    UnregisterAutoListener(World);
+    DestroyWorldAudioRenderer(World);
     GAutoRegisteredWorlds.Remove(WorldKey);
 }
 
@@ -272,6 +583,7 @@ void FMagnaundasoniRuntimeModule::OnLevelAddedToWorld(ULevel* Level, UWorld* Wor
     {
         if (!Actor) continue;
         TryAutoAttachGeometryComponent(Actor);
+        TryAutoAttachSourceComponents(Actor);
     }
 }
 
@@ -361,6 +673,8 @@ bool FMagnaundasoniRuntimeModule::ResolveFunctionPointers()
     MAG_RESOLVE_REQUIRED(GeometryUnregister,       "mag_geometry_unregister",        PFN_mag_geometry_unregister)
     MAG_RESOLVE_REQUIRED(GeometryUpdateTransform,  "mag_geometry_update_transform",  PFN_mag_geometry_update_transform)
     MAG_RESOLVE_REQUIRED(Update,                   "mag_update",                     PFN_mag_update)
+    MAG_RESOLVE_REQUIRED(SubmitSourceAudio,        "mag_submit_source_audio",        PFN_mag_submit_source_audio)
+    MAG_RESOLVE_REQUIRED(RenderAudio,              "mag_render_audio",               PFN_mag_render_audio)
     MAG_RESOLVE_REQUIRED(GetAcousticResult,        "mag_get_acoustic_result",        PFN_mag_get_acoustic_result)
     MAG_RESOLVE_OPTIONAL(MaterialGetPreset,        "mag_material_get_preset",        PFN_mag_material_get_preset)
     MAG_RESOLVE_OPTIONAL(MaterialRegister,         "mag_material_register",          PFN_mag_material_register)

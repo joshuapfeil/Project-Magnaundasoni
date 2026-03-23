@@ -45,7 +45,9 @@ public:
 
     /// Called by the simulation thread: stage a new result for mixing.
     void stageResult(uint32_t sourceID, uint32_t listenerID,
-                     const MagAcousticResult& result);
+                     const MagAcousticResult& result,
+                     const float* sourceSamples,
+                     uint32_t numFrames);
 
     /// Swap the staged buffer into the active buffer (call once per sim frame).
     void commitStaged();
@@ -91,6 +93,7 @@ private:
         uint32_t sourceID   = 0;
         uint32_t listenerID = 0;
         MagAcousticResult result{};
+        std::vector<float> sourceSamples;
         // Owned copies of dynamic arrays
         std::vector<MagReflectionTap> reflCopy;
         std::vector<MagDiffractionTap> diffCopy;

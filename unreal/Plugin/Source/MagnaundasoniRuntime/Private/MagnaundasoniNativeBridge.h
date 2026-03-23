@@ -172,6 +172,14 @@ typedef MagStatusNative (*PFN_mag_geometry_update_transform)(
 typedef MagStatusNative (*PFN_mag_update)(
     MagEngineNative engine, float deltaTime);
 
+typedef MagStatusNative (*PFN_mag_submit_source_audio)(
+    MagEngineNative engine, MagSourceIDNative srcID,
+    const float* interleavedSamples, uint32 frameCount, uint32 channelCount);
+
+typedef MagStatusNative (*PFN_mag_render_audio)(
+    MagEngineNative engine, MagListenerIDNative listenerID,
+    float* outputBuffer, uint32 frameCount, uint32 channelCount, uint32 sampleRate);
+
 typedef MagStatusNative (*PFN_mag_get_acoustic_result)(
     MagEngineNative engine, MagSourceIDNative srcID,
     MagListenerIDNative listenerID, FMagAcousticResultNative* outResult);
@@ -235,6 +243,8 @@ struct FMagNativeBridge
     PFN_mag_geometry_update_transform GeometryUpdateTransform  = nullptr;
 
     PFN_mag_update                    Update                   = nullptr;
+    PFN_mag_submit_source_audio       SubmitSourceAudio        = nullptr;
+    PFN_mag_render_audio              RenderAudio              = nullptr;
     PFN_mag_get_acoustic_result       GetAcousticResult        = nullptr;
 
     PFN_mag_material_get_preset       MaterialGetPreset        = nullptr;
@@ -258,7 +268,7 @@ struct FMagNativeBridge
         return SourceRegister   && SourceUnregister   && SourceUpdate
             && ListenerRegister && ListenerUnregister && ListenerUpdate
             && GeometryRegister && GeometryUnregister && GeometryUpdateTransform
-            && Update           && GetAcousticResult
+            && Update           && SubmitSourceAudio && RenderAudio && GetAcousticResult
             && MaterialGetPreset && MaterialRegister;
     }
 };
