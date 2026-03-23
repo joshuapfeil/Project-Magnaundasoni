@@ -16,6 +16,8 @@ namespace magnaundasoni {
 
 using Microsoft::WRL::ComPtr;
 
+std::unique_ptr<ComputeBackend> createD3D12ComputeBackend();
+
 namespace {
 
 struct GPUNode {
@@ -571,6 +573,9 @@ public:
         return usingExternalDevice_;
     }
 
+    bool attachExternalD3D12Device(void*) override { return false; }
+    bool usingExternalD3D12Device() const override { return false; }
+
     bool syncScene(const BVH& bvh) override {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!available_) return false;
@@ -1018,6 +1023,8 @@ public:
     bool available() const override { return false; }
     bool attachExternalD3D11Device(void*, void*) override { return false; }
     bool usingExternalD3D11Device() const override { return false; }
+    bool attachExternalD3D12Device(void*) override { return false; }
+    bool usingExternalD3D12Device() const override { return false; }
     bool syncScene(const BVH&) override { return false; }
     bool traceClosestBatch(const std::vector<Ray>&, std::vector<HitResult>&) override { return false; }
     bool traceAnyBatch(const std::vector<Ray>&, std::vector<uint8_t>&) override { return false; }
@@ -1025,7 +1032,12 @@ public:
 
 } // namespace
 
-std::unique_ptr<ComputeBackend> createComputeBackend() {
+std::unique_ptr<ComputeBackend> createComputeBackend(MagBackendType backendPreference) {
+    if (backendPreference == MAG_BACKEND_DX12) {
+        auto backend = createD3D12ComputeBackend();
+        if (backend && backend->available()) return backend;
+    }
+
     auto backend = std::make_unique<D3D11ComputeBackend>();
     if (backend->available()) return backend;
     return std::make_unique<NullComputeBackend>();
@@ -1044,6 +1056,8 @@ public:
     bool available() const override { return false; }
     bool attachExternalD3D11Device(void*, void*) override { return false; }
     bool usingExternalD3D11Device() const override { return false; }
+    bool attachExternalD3D12Device(void*) override { return false; }
+    bool usingExternalD3D12Device() const override { return false; }
     bool syncScene(const BVH&) override { return false; }
     bool traceClosestBatch(const std::vector<Ray>&, std::vector<HitResult>&) override { return false; }
     bool traceAnyBatch(const std::vector<Ray>&, std::vector<uint8_t>&) override { return false; }
@@ -1051,7 +1065,7 @@ public:
 
 } // namespace
 
-std::unique_ptr<ComputeBackend> createComputeBackend() {
+std::unique_ptr<ComputeBackend> createComputeBackend(MagBackendType) {
     return std::make_unique<NullComputeBackend>();
 }
 

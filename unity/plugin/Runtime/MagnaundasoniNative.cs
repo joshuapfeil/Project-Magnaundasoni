@@ -32,7 +32,8 @@ namespace Magnaundasoni
         SoftwareBVH = 1,
         DXR         = 2,
         VulkanRT    = 3,
-        Compute     = 4
+        Compute     = 4,
+        DX12        = 5
     }
 
     public enum MagDynamicFlag : uint
@@ -313,6 +314,7 @@ namespace Magnaundasoni
         public uint computeAvailable;
         public uint computeEnabled;
         public uint usingExternalD3D11Device;
+        public uint usingExternalD3D12Device;
         public uint lastSceneSyncSucceeded;
     }
 
@@ -456,6 +458,14 @@ namespace Magnaundasoni
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern MagStatus mag_set_d3d11_device(
             IntPtr engine, IntPtr d3d11Device, IntPtr d3d11DeviceContext);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MagStatus mag_set_d3d12_device(
+            IntPtr engine, IntPtr d3d12Device);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MagStatus mag_set_unity_graphics_renderer(
+            int deviceType);
 
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern MagStatus mag_bind_unity_graphics_device(

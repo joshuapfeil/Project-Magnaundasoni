@@ -3,6 +3,7 @@
 
 #include "core/BVH.h"
 #include "core/Types.h"
+#include "Magnaundasoni.h"
 
 #include <cstdint>
 #include <memory>
@@ -17,6 +18,8 @@ public:
     virtual bool available() const = 0;
     virtual bool attachExternalD3D11Device(void* device, void* deviceContext) = 0;
     virtual bool usingExternalD3D11Device() const = 0;
+    virtual bool attachExternalD3D12Device(void* device) = 0;
+    virtual bool usingExternalD3D12Device() const = 0;
     virtual bool syncScene(const BVH& bvh) = 0;
     virtual bool traceClosestBatch(const std::vector<Ray>& rays,
                                    std::vector<HitResult>& outHits) = 0;
@@ -24,7 +27,7 @@ public:
                                std::vector<uint8_t>& outHits) = 0;
 };
 
-std::unique_ptr<ComputeBackend> createComputeBackend();
+std::unique_ptr<ComputeBackend> createComputeBackend(MagBackendType backendPreference = MAG_BACKEND_COMPUTE);
 
 } // namespace magnaundasoni
 

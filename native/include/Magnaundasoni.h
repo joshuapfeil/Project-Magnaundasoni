@@ -71,7 +71,8 @@ typedef enum {
     MAG_BACKEND_SOFTWARE_BVH = 1,
     MAG_BACKEND_DXR          = 2,
     MAG_BACKEND_VULKAN_RT    = 3,
-    MAG_BACKEND_COMPUTE      = 4
+    MAG_BACKEND_COMPUTE      = 4,
+    MAG_BACKEND_DX12         = 5
 } MagBackendType;
 
 /* ------------------------------------------------------------------ */
@@ -263,6 +264,7 @@ typedef struct {
     uint32_t       computeAvailable;
     uint32_t       computeEnabled;
     uint32_t       usingExternalD3D11Device;
+    uint32_t       usingExternalD3D12Device;
     uint32_t       lastSceneSyncSucceeded;
 } MagBackendDiagnostics;
 
@@ -385,6 +387,9 @@ MAG_API MagStatus mag_set_quality(MagEngine engine, MagQualityLevel level);
 MAG_API MagStatus mag_set_d3d11_device(MagEngine engine,
                                        void* d3d11Device,
                                        void* d3d11DeviceContext);
+MAG_API MagStatus mag_set_d3d12_device(MagEngine engine,
+                                       void* d3d12Device);
+MAG_API MagStatus mag_set_unity_graphics_renderer(int deviceType);
 MAG_API MagStatus mag_bind_unity_graphics_device(MagEngine engine);
 
 /* ------------------------------------------------------------------ */

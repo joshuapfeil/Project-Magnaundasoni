@@ -52,6 +52,7 @@ struct MagEngine_T {
     MagQualityLevel  activeQuality = MAG_QUALITY_MEDIUM;
     MagBackendType   backendUsed   = MAG_BACKEND_SOFTWARE_BVH;
     MagBackendType   requestedBackend = MAG_BACKEND_AUTO;
+    MagBackendType   computeBackendFlavor = MAG_BACKEND_COMPUTE;
 
     Scene            scene;
     BVH              bvh;
@@ -72,6 +73,7 @@ struct MagEngine_T {
 
     void*                 externalD3D11Device = nullptr;
     void*                 externalD3D11DeviceContext = nullptr;
+    void*                 externalD3D12Device = nullptr;
 
     std::mutex spatialMutex;
     MagSpatialConfig spatialConfig = defaultSpatialConfig();
@@ -146,23 +148,29 @@ static AcousticRenderer::Config makeRendererConfig(const MagEngine_T* engine) {
     return config;
 }
 
-static bool ensureComputeBackend(MagEngine_T* engine) {
-    if (!engine->computeBackend)
-        engine->computeBackend = createComputeBackend();
-
-    if (!engine->computeBackend)
-        return false;
-
-    if (engine->externalD3D11Device || engine->externalD3D11DeviceContext) {
-        if (!engine->computeBackend->attachExternalD3D11Device(
-                engine->externalD3D11Device,
-                engine->externalD3D11DeviceContext)) {
-            return false;
-        }
+static bool ensureComputeBackend(MagEngine_T* engine, MagBackendType backendFlavor) {
+    if (!engine->computeBackend || engine->computeBackendFlavor != backendFlavor) {
+        engine->computeBackend = createComputeBackend(backendFlavor);
+        engine->computeBackendFlavor = backendFlavor;
     }
 
-    if (!engine->computeBackend->available())
-        return false;
+    if (!engine->computeBackend || !engine->computeBackend->available()) return false;
+
+    if (backendFlavor == MAG_BACKEND_DX12) {
+        if (engine->externalD3D12Device) {
+            if (!engine->computeBackend->attachExternalD3D12Device(engine->externalD3D12Device)) {
+                return false;
+            }
+        }
+    } else {
+        if (engine->externalD3D11Device || engine->externalD3D11DeviceContext) {
+            if (!engine->computeBackend->attachExternalD3D11Device(
+                    engine->externalD3D11Device,
+                    engine->externalD3D11DeviceContext)) {
+                return false;
+            }
+        }
+    }
 
     engine->acousticRenderer.setComputeBackend(engine->computeBackend.get());
     return true;
@@ -173,27 +181,34 @@ static void selectBackend(MagEngine_T* engine) {
     engine->backendUsed = MAG_BACKEND_SOFTWARE_BVH;
     engine->acousticRenderer.setComputeBackend(nullptr);
 
-    auto tryCompute = [engine]() {
-        return ensureComputeBackend(engine);
+    const bool unityWantsDx12 = (g_unityGraphicsRenderer == kUnityGfxRendererD3D12);
+    const bool hasDx12Device = engine->externalD3D12Device != nullptr;
+    MagBackendType desiredCompute = (unityWantsDx12 || hasDx12Device || engine->computeBackendFlavor == MAG_BACKEND_DX12)
+        ? MAG_BACKEND_DX12
+        : MAG_BACKEND_COMPUTE;
+
+    auto tryCompute = [engine, desiredCompute]() {
+        return ensureComputeBackend(engine, desiredCompute);
     };
 
     switch (engine->requestedBackend) {
         case MAG_BACKEND_COMPUTE:
-            if (tryCompute()) engine->backendUsed = MAG_BACKEND_COMPUTE;
+        case MAG_BACKEND_DX12:
+            if (tryCompute()) engine->backendUsed = desiredCompute;
             break;
         case MAG_BACKEND_DXR:
         case MAG_BACKEND_VULKAN_RT:
-            if (tryCompute()) engine->backendUsed = MAG_BACKEND_COMPUTE;
+            if (tryCompute()) engine->backendUsed = desiredCompute;
             break;
         case MAG_BACKEND_AUTO:
-            if (tryCompute()) engine->backendUsed = MAG_BACKEND_COMPUTE;
+            if (tryCompute()) engine->backendUsed = desiredCompute;
             break;
         case MAG_BACKEND_SOFTWARE_BVH:
         default:
             break;
     }
 
-    if (engine->backendUsed == MAG_BACKEND_COMPUTE && !engine->bvh.empty()) {
+    if ((engine->backendUsed == MAG_BACKEND_COMPUTE || engine->backendUsed == MAG_BACKEND_DX12) && !engine->bvh.empty()) {
         engine->lastSceneSyncSucceeded = engine->computeBackend->syncScene(engine->bvh);
     }
 }
@@ -253,9 +268,12 @@ MagStatus mag_get_backend_diagnostics(MagEngine engine,
     outDiagnostics->activeBackend = engine->backendUsed;
     outDiagnostics->computeAvailable =
         (engine->computeBackend && engine->computeBackend->available()) ? 1u : 0u;
-    outDiagnostics->computeEnabled = (engine->backendUsed == MAG_BACKEND_COMPUTE) ? 1u : 0u;
+    outDiagnostics->computeEnabled =
+        (engine->backendUsed == MAG_BACKEND_COMPUTE || engine->backendUsed == MAG_BACKEND_DX12) ? 1u : 0u;
     outDiagnostics->usingExternalD3D11Device =
         (engine->computeBackend && engine->computeBackend->usingExternalD3D11Device()) ? 1u : 0u;
+    outDiagnostics->usingExternalD3D12Device =
+        (engine->computeBackend && engine->computeBackend->usingExternalD3D12Device()) ? 1u : 0u;
     outDiagnostics->lastSceneSyncSucceeded = engine->lastSceneSyncSucceeded ? 1u : 0u;
     return MAG_OK;
 }
@@ -585,6 +603,24 @@ MagStatus mag_set_quality(MagEngine engine, MagQualityLevel level) {
     return MAG_OK;
 }
 
+MagStatus mag_set_d3d12_device(MagEngine engine,
+                               void* d3d12Device) {
+    if (!engine) return MAG_INVALID_PARAM;
+
+    engine->externalD3D12Device = d3d12Device;
+    if (d3d12Device) {
+        engine->computeBackendFlavor = MAG_BACKEND_DX12;
+    }
+    selectBackend(engine);
+    return MAG_OK;
+}
+
+MagStatus mag_set_unity_graphics_renderer(int deviceType) {
+    std::lock_guard lock(g_unityGraphicsMutex);
+    g_unityGraphicsRenderer = deviceType;
+    return MAG_OK;
+}
+
 MagStatus mag_set_d3d11_device(MagEngine engine,
                                void* d3d11Device,
                                void* d3d11DeviceContext) {
@@ -605,10 +641,7 @@ MagStatus mag_bind_unity_graphics_device(MagEngine engine) {
     }
 
     if (g_unityGraphicsRenderer == kUnityGfxRendererD3D12) {
-        engine->externalD3D11Device = nullptr;
-        engine->externalD3D11DeviceContext = nullptr;
-        selectBackend(engine);
-        return MAG_OK;
+        return mag_set_d3d12_device(engine, g_unityGraphicsDevice);
     }
 
     return MAG_OK;

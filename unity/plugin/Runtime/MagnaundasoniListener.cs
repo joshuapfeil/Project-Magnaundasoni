@@ -39,7 +39,8 @@ namespace Magnaundasoni
         {
             if (!_registered) return;
 
-            var engine = MagnaundasoniEngine.Instance;
+            var engine = MagnaundasoniEngine.Current;
+            if (engine == null) return;
             if (!engine.IsInitialized) return;
 
             UpdateNativePosition(engine);
@@ -67,7 +68,7 @@ namespace Magnaundasoni
         {
             if (!_registered) return;
 
-            var engine = MagnaundasoniEngine.Instance;
+            var engine = MagnaundasoniEngine.Current;
             if (engine != null && engine.IsInitialized)
             {
                 try { MagAPI.ListenerUnregister(engine.NativeHandle, _listenerID); }

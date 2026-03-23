@@ -99,6 +99,7 @@ set(MAG_SPATIAL_HEADERS
 # Engine entry-point that implements the C ABI
 set(MAG_ENGINE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/ComputeBackend.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/D3D12ComputeBackend.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/Engine.cpp
 )
 
@@ -172,7 +173,7 @@ endif()
 if(MAGNAUNDASONI_ENABLE_COMPUTE)
     target_compile_definitions(magnaundasoni PRIVATE MAGNAUNDASONI_COMPUTE=1)
     if(WIN32)
-        target_link_libraries(magnaundasoni PRIVATE d3d11 d3dcompiler)
+        target_link_libraries(magnaundasoni PRIVATE d3d11 d3d12 dxgi d3dcompiler)
     endif()
 endif()
 

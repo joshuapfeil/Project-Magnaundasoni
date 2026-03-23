@@ -44,6 +44,8 @@ namespace Magnaundasoni
             }
         }
 
+        public static MagnaundasoniEngine Current => _instance;
+
         // ----- Inspector Configuration ------------------------------------
         [Header("Quality")]
         [Tooltip("Acoustic simulation quality level.")]
@@ -215,6 +217,7 @@ namespace Magnaundasoni
 
             try
             {
+                MagnaundasoniNative.mag_set_unity_graphics_renderer((int)SystemInfo.graphicsDeviceType);
                 _engineHandle = MagAPI.EngineCreate(config);
                 MagAPI.BindUnityGraphicsDevice(_engineHandle);
                 var diagnostics = MagAPI.GetBackendDiagnostics(_engineHandle);
