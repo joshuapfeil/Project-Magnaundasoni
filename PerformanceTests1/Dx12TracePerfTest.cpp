@@ -7,6 +7,11 @@
 #include <memory>
 #include <sstream>
 #include <vector>
+#include <thread>
+#include <string>
+#include <cstdlib>
+#include <cstring>
+#include <Windows.h>
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 using namespace magnaundasoni;
 
@@ -98,6 +103,33 @@ namespace MagnaundasoniPerfTests
             Logger::WriteMessage(L"DX12 performance test requires Windows.");
             return;
 #else
+            // Optional: wait for attach when MAG_WAIT_FOR_ATTACH=1 is set in the environment.
+            // Create a marker file (in %TEMP%) named mag_attach_<pid>.ready to continue.
+            char* waitEnv = nullptr;
+            size_t envLen = 0;
+            if (_dupenv_s(&waitEnv, &envLen, "MAG_WAIT_FOR_ATTACH") == 0 && waitEnv) {
+                if (std::strcmp(waitEnv, "1") == 0) {
+                    DWORD pid = GetCurrentProcessId();
+                    char tempPath[MAX_PATH] = {0};
+                    DWORD len = GetTempPathA(MAX_PATH, tempPath);
+                    std::string flagPath = std::string(tempPath ? tempPath : "C:\\temp\\") + "mag_attach_" + std::to_string(pid) + ".ready";
+                    std::wstring msg = L"Waiting for attach. Create file: ";
+                    // convert flagPath to wstring for logging
+                    std::wstring wflag(flagPath.begin(), flagPath.end());
+                    msg += wflag;
+                    Logger::WriteMessage(msg.c_str());
+
+                    const int kMaxSeconds = 300; // 5 minutes
+                    int waitedMs = 0;
+                    while (waitedMs < kMaxSeconds * 1000) {
+                        DWORD attr = GetFileAttributesA(flagPath.c_str());
+                        if (attr != INVALID_FILE_ATTRIBUTES) break;
+                        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                        waitedMs += 500;
+                    }
+                }
+                free(waitEnv);
+            }
             auto backend = createComputeBackend(MAG_BACKEND_DX12);
             Assert::IsTrue(static_cast<bool>(backend), L"DX12 backend factory returned null.");
 

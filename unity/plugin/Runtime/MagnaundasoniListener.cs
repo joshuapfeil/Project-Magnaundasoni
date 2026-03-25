@@ -22,12 +22,19 @@ namespace Magnaundasoni
         // ----- Private State -----------------------------------------------
         private uint _listenerID;
         private bool _registered;
+        private int _outputSampleRate;
 
         // ----- Lifecycle ---------------------------------------------------
         private void OnEnable()
         {
+            CacheAudioSettings();
             _activeListener = this;
             Register();
+        }
+
+        private void OnAudioConfigurationChanged(bool deviceWasChanged)
+        {
+            CacheAudioSettings();
         }
 
         private void OnDisable()
@@ -61,7 +68,7 @@ namespace Magnaundasoni
             {
                 MagAPI.RenderAudio(engine.NativeHandle, _listenerID,
                     data, (uint)(data.Length / channels), (uint)channels,
-                    (uint)AudioSettings.outputSampleRate);
+                    (uint)_outputSampleRate);
             }
             catch (MagnaundasoniException)
             {
@@ -98,6 +105,11 @@ namespace Magnaundasoni
                 catch (MagnaundasoniException) { }
             }
             _registered = false;
+        }
+
+        private void CacheAudioSettings()
+        {
+            _outputSampleRate = AudioSettings.outputSampleRate;
         }
 
         // ----- Per-Frame Updates -------------------------------------------

@@ -11,6 +11,7 @@
 #include <cstring>
 #include <mutex>
 #include <vector>
+#include <cstdio>
 
 namespace magnaundasoni {
 
@@ -170,6 +171,28 @@ bool RayBox(RayIn ray, float3 boundsMin, float3 boundsMax, float tMaxLimit, out 
     entryT = tMin;
     return true;
 }
+
+    bool ensureTimestampCapacity(UINT32 count) {
+        if (count == 0) return true;
+        UINT64 byteSize = static_cast<UINT64>(count) * sizeof(UINT64);
+
+        if (!timestampQueryHeap_ || timestampCapacity_ < count) {
+            D3D12_QUERY_HEAP_DESC desc{};
+            desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+            desc.Count = count;
+            desc.NodeMask = 0;
+            if (FAILED(device_->CreateQueryHeap(&desc, IID_PPV_ARGS(timestampQueryHeap_.GetAddressOf())))) return false;
+            timestampCapacity_ = count;
+        }
+
+        if (!timestampReadbackBuffer_ || timestampReadbackBuffer_->GetDesc().Width < byteSize) {
+            if (FAILED(device_->CreateCommittedResource(&heapProps(D3D12_HEAP_TYPE_READBACK), D3D12_HEAP_FLAG_NONE,
+                                                       &bufferDesc(byteSize), D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                                       IID_PPV_ARGS(timestampReadbackBuffer_.GetAddressOf())))) return false;
+        }
+
+        return true;
+    }
 
 bool RayTriangle(RayIn ray, Triangle tri, out float outT)
 {
@@ -827,6 +850,29 @@ private:
         return true;
     }
 
+    // Ensure we have a query heap and readback buffer large enough for 'count' timestamps
+    bool ensureTimestampCapacity(UINT32 count) {
+        if (count == 0) return true;
+        UINT64 byteSize = static_cast<UINT64>(count) * sizeof(UINT64);
+
+        if (!timestampQueryHeap_ || timestampCapacity_ < count) {
+            D3D12_QUERY_HEAP_DESC desc{};
+            desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+            desc.Count = count;
+            desc.NodeMask = 0;
+            if (FAILED(device_->CreateQueryHeap(&desc, IID_PPV_ARGS(timestampQueryHeap_.GetAddressOf())))) return false;
+            timestampCapacity_ = count;
+        }
+
+        if (!timestampReadbackBuffer_ || timestampReadbackBuffer_->GetDesc().Width < byteSize) {
+            if (FAILED(device_->CreateCommittedResource(&heapProps(D3D12_HEAP_TYPE_READBACK), D3D12_HEAP_FLAG_NONE,
+                                                       &bufferDesc(byteSize), D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                                       IID_PPV_ARGS(timestampReadbackBuffer_.GetAddressOf())))) return false;
+        }
+
+        return true;
+    }
+
     bool traceBatch(const std::vector<Ray>& rays, std::vector<HitResult>& outHits, bool closest) {
         std::lock_guard<std::mutex> lock(mutex_);
         outHits.assign(rays.size(), HitResult{});
@@ -866,6 +912,8 @@ private:
             outputState_ = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
         }
 
+        if (!ensureTimestampCapacity(2)) return false;
+
         if (!uploadBuffer(device_.Get(), commandList_.Get(), gpuRays.data(), static_cast<UINT64>(gpuRays.size()),
                           rayBuffer_, rayUploadBuffer_, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)) {
             return false;
@@ -883,17 +931,32 @@ private:
         commandList_->SetComputeRootShaderResourceView(3, rayBuffer_->GetGPUVirtualAddress());
         commandList_->SetComputeRootUnorderedAccessView(4, outputBuffer_->GetGPUVirtualAddress());
 
-        D3D12_RESOURCE_BARRIER barrier = {};
-        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        barrier.Transition.pResource = outputBuffer_.Get();
-        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-        commandList_->ResourceBarrier(1, &barrier);
+        commandList_->Dispatch((static_cast<UINT>(rays.size()) + 63u) / 64u, 1, 1);
+
+        D3D12_RESOURCE_BARRIER uavBarrier = {};
+        uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+        uavBarrier.UAV.pResource = outputBuffer_.Get();
+        commandList_->ResourceBarrier(1, &uavBarrier);
+
+        // Timestamp: mark dispatch start
+        if (timestampQueryHeap_) commandList_->EndQuery(timestampQueryHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
+
+        D3D12_RESOURCE_BARRIER toCopySource = {};
+        toCopySource.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        toCopySource.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        toCopySource.Transition.pResource = outputBuffer_.Get();
+        toCopySource.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        toCopySource.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        commandList_->ResourceBarrier(1, &toCopySource);
         outputState_ = D3D12_RESOURCE_STATE_COPY_SOURCE;
 
-        commandList_->Dispatch((static_cast<UINT>(rays.size()) + 63u) / 64u, 1, 1);
+        // Timestamp: mark after copy
+        // We'll end the second timestamp after the CopyResource so it measures dispatch+copy time
         commandList_->CopyResource(outputReadbackBuffer_.Get(), outputBuffer_.Get());
+        if (timestampQueryHeap_) commandList_->EndQuery(timestampQueryHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);
+        if (timestampQueryHeap_ && timestampReadbackBuffer_) {
+            commandList_->ResolveQueryData(timestampQueryHeap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, 2, timestampReadbackBuffer_.Get(), 0);
+        }
         commandList_->Close();
         executeAndWait();
 
@@ -916,6 +979,26 @@ private:
             }
         }
         outputReadbackBuffer_->Unmap(0, nullptr);
+
+        // Read timestamp query results (if available) to report GPU time for this batch
+        if (timestampReadbackBuffer_) {
+            void* mappedTs = nullptr;
+            if (SUCCEEDED(timestampReadbackBuffer_->Map(0, nullptr, &mappedTs))) {
+                const uint64_t* ts = static_cast<const uint64_t*>(mappedTs);
+                if (ts[1] >= ts[0]) {
+                    UINT64 freq = 0;
+                    if (SUCCEEDED(queue_->GetTimestampFrequency(&freq)) && freq != 0) {
+                        double ms = static_cast<double>(ts[1] - ts[0]) / static_cast<double>(freq) * 1000.0;
+                        lastGpuTimeMs_ = ms;
+                        char buf[128];
+                        sprintf_s(buf, "[Magnaundasoni] GPU time (ms): %.3f\n", ms);
+                        OutputDebugStringA(buf);
+                    }
+                }
+                timestampReadbackBuffer_->Unmap(0, nullptr);
+            }
+        }
+
         return true;
     }
 
@@ -924,10 +1007,23 @@ private:
         queue_->ExecuteCommandLists(1, lists);
         const UINT64 fenceToWaitFor = fenceValue_++;
         queue_->Signal(fence_.Get(), fenceToWaitFor);
-        if (fence_->GetCompletedValue() < fenceToWaitFor) {
-            fence_->SetEventOnCompletion(fenceToWaitFor, fenceEvent_);
-            WaitForSingleObject(fenceEvent_, INFINITE);
+
+        if (fence_->GetCompletedValue() >= fenceToWaitFor) return;
+
+        constexpr uint32_t kSpinCount = 64;
+        for (uint32_t i = 0; i < kSpinCount; ++i) {
+            YieldProcessor();
+            if (fence_->GetCompletedValue() >= fenceToWaitFor) return;
         }
+
+        constexpr uint32_t kYieldCount = 8;
+        for (uint32_t i = 0; i < kYieldCount; ++i) {
+            SwitchToThread();
+            if (fence_->GetCompletedValue() >= fenceToWaitFor) return;
+        }
+
+        fence_->SetEventOnCompletion(fenceToWaitFor, fenceEvent_);
+        WaitForSingleObject(fenceEvent_, INFINITE);
     }
 
     bool available_ = false;
@@ -940,6 +1036,12 @@ private:
     UINT64 fenceValue_ = 1;
     D3D12_RESOURCE_STATES outputState_ = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
     std::mutex mutex_;
+
+    // GPU timestamp query support for lightweight GPU timing measurements
+    ComPtr<ID3D12QueryHeap> timestampQueryHeap_;
+    ComPtr<ID3D12Resource> timestampReadbackBuffer_;
+    uint32_t timestampCapacity_ = 0;
+    double lastGpuTimeMs_ = 0.0;
 
     D3D12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE type) { return magnaundasoni::heapProps(type); }
     D3D12_RESOURCE_DESC bufferDesc(UINT64 size, D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE) { return magnaundasoni::bufferDesc(size, flags); }
