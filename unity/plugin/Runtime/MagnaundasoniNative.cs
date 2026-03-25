@@ -436,6 +436,17 @@ namespace Magnaundasoni
         public static extern MagStatus mag_update(
             IntPtr engine, float deltaTime);
 
+        // Built-in audio routing
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MagStatus mag_submit_source_audio(
+            IntPtr engine, uint sourceID, float[] interleavedSamples,
+            uint frameCount, uint channelCount);
+
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern MagStatus mag_render_audio(
+            IntPtr engine, uint listenerID, float[] outputBuffer,
+            uint frameCount, uint channelCount, uint sampleRate);
+
         // Results
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern MagStatus mag_get_acoustic_result(

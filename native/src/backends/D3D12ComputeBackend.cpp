@@ -556,7 +556,9 @@ bool uploadBuffer(ID3D12Device* device, ID3D12GraphicsCommandList* list,
 
 class D3D12ComputeBackend final : public ComputeBackend {
 public:
-    D3D12ComputeBackend() = default;
+    D3D12ComputeBackend() {
+        initializeInternalDevice();
+    }
 
     bool available() const override { return available_; }
     bool attachExternalD3D11Device(void*, void*) override { return false; }
@@ -809,13 +811,17 @@ private:
                             D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) {
         UINT64 byteSize = std::max<UINT64>(1, count) * stride;
         if (!defaultBuffer || defaultBuffer->GetDesc().Width < byteSize) {
-            if (FAILED(device_->CreateCommittedResource(&heapProps(D3D12_HEAP_TYPE_DEFAULT), D3D12_HEAP_FLAG_NONE,
-                                                       &bufferDesc(byteSize, flags), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            auto defaultHeap = heapProps(D3D12_HEAP_TYPE_DEFAULT);
+            auto defaultDesc = bufferDesc(byteSize, flags);
+            if (FAILED(device_->CreateCommittedResource(&defaultHeap, D3D12_HEAP_FLAG_NONE,
+                                                       &defaultDesc, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                                                        nullptr, IID_PPV_ARGS(defaultBuffer.ReleaseAndGetAddressOf())))) return false;
         }
         if (!readbackBuffer || readbackBuffer->GetDesc().Width < byteSize) {
-            if (FAILED(device_->CreateCommittedResource(&heapProps(D3D12_HEAP_TYPE_READBACK), D3D12_HEAP_FLAG_NONE,
-                                                       &bufferDesc(byteSize), D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            auto readbackHeap = heapProps(D3D12_HEAP_TYPE_READBACK);
+            auto readbackDesc = bufferDesc(byteSize);
+            if (FAILED(device_->CreateCommittedResource(&readbackHeap, D3D12_HEAP_FLAG_NONE,
+                                                       &readbackDesc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
                                                        IID_PPV_ARGS(readbackBuffer.ReleaseAndGetAddressOf())))) return false;
         }
         return true;
